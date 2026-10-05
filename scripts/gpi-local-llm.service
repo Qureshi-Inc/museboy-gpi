@@ -1,0 +1,34 @@
+[Unit]
+Description=GPi local Gemma planner
+After=local-fs.target
+
+[Service]
+Type=simple
+User=gpi-ai
+Group=tendo
+WorkingDirectory=/opt/gpi/local-ai
+EnvironmentFile=/etc/gpi/local-ai/model.env
+ExecStart=/opt/gpi/local-ai/bin/llama-server --model ${MODEL_PATH} --alias ${MODEL_ALIAS} --host 127.0.0.1 --port 8089 --ctx-size 4096 --threads 2 --threads-batch 2 --parallel 1
+Restart=on-failure
+RestartSec=4
+Nice=10
+OOMScoreAdjust=500
+CPUAccounting=yes
+CPUWeight=10
+CPUQuota=125%
+MemoryAccounting=yes
+MemoryHigh=4500M
+MemoryMax=5200M
+TasksMax=64
+LimitNOFILE=1024
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_UNIX
+ReadOnlyPaths=/opt/gpi/local-ai/models
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.gguf
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.pem
+*.key
+sdk_token

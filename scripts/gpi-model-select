@@ -1,0 +1,45 @@
+#!/bin/sh
+set -eu
+
+[ "$(id -u)" -eq 0 ] || { echo "Run through sudo." >&2; exit 1; }
+model_id=${1:-}
+case "$model_id" in
+    ''|.|..|*[!A-Za-z0-9_.+-]*) echo "Invalid model name." >&2; exit 2 ;;
+esac
+root=/opt/gpi/local-ai/models
+model="$root/$model_id.gguf"
+config=/etc/gpi/local-ai/model.env
+[ -f "$model" ] || { echo "That GGUF model is not downloaded." >&2; exit 3; }
+size=$(stat -c %s "$model")
+[ "$size" -le 2500000000 ] || { echo "Model exceeds the 2.5 GB safe limit." >&2; exit 4; }
+[ "$(head -c 4 "$model")" = GGUF ] || { echo "File is not a valid GGUF model." >&2; exit 5; }
+if curl --silent --fail --max-time 2 http://127.0.0.1:8089/v1/models |
+        grep -Fq "\"$model_id\""; then
+    echo "Model $model_id is already loaded."
+    exit 0
+fi
+mkdir -p "$(dirname "$config")"
+backup=$(mktemp)
+if [ -f "$config" ]; then cp "$config" "$backup"; else : > "$backup"; fi
+tmp=$(mktemp "$(dirname "$config")/.model.env.XXXXXX")
+printf 'MODEL_PATH=%s\nMODEL_ALIAS=%s\n' "$model" "$model_id" > "$tmp"
+chmod 0644 "$tmp"
+mv "$tmp" "$config"
+if systemctl restart gpi-local-llm.service; then
+    for _ in $(seq 1 180); do
+        if curl --silent --fail --max-time 2 http://127.0.0.1:8089/v1/models |
+                grep -Fq "\"$model_id\""; then
+            rm -f "$backup"
+            echo "Loaded $model_id."
+            exit 0
+        fi
+        sleep 1
+    done
+fi
+if [ -s "$backup" ]; then
+    cp "$backup" "$config"
+    systemctl restart gpi-local-llm.service || true
+fi
+rm -f "$backup"
+echo "Could not load $model_id; restored the previous selection." >&2
+exit 1

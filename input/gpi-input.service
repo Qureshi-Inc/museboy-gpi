@@ -1,0 +1,13 @@
+[Unit]
+Description=GPi gamepad to keyboard mapper
+After=multi-user.target
+
+[Service]
+Type=simple
+User=tendo
+ExecStart=/usr/bin/python3 /opt/gpi/input/gpi-input.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

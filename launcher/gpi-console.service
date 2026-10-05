@@ -1,0 +1,16 @@
+[Unit]
+Description=GPi app console (launcher on X)
+After=systemd-logind.service gpi-input.service
+Requires=gpi-input.service
+
+[Service]
+Type=simple
+User=tendo
+PAMName=login
+Environment=DISPLAY=:0
+ExecStart=/usr/bin/xinit /opt/gpi/launcher/session.sh -- :0 vt1
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

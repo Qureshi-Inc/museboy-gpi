@@ -1,0 +1,29 @@
+# Initial configuration for CM4 and GPi Case 2.
+# Display and shutdown behavior must be validated on the actual hardware.
+[all]
+arm_64bit=1
+enable_uart=0
+disable_overscan=1
+max_framebuffers=2
+display_auto_detect=0
+camera_auto_detect=0
+disable_fw_kms_setup=1
+
+# The built-in gamepad and external dock devices use the USB host controller.
+dtoverlay=dwc2,dr_mode=host
+
+# Keep both KMS outputs available. Dock HPD may arrive after early firmware
+# sampling; tendo-outputs selects HDMI-A-1 or DPI after the compositor is ready.
+dtoverlay=vc4-kms-v3d
+# Modern KMS driver with Retroflag's nominal 24 MHz / 640x480 timing.
+# The horizontal porches are adjusted 41/41 -> 40/42 for even Pi4 timings.
+# DPI mode 6 uses RGB666 with padding on the GPIO bus.
+dtoverlay=vc4-kms-dpi-generic,hactive=640,hfp=40,hsync=40,hbp=42
+dtparam=vactive=480,vfp=18,vsync=9,vbp=18
+dtparam=clock-frequency=24000000,rgb666-padhi=1
+
+[all]
+# Retroflag's reference shutdown script holds BCM27 high and watches BCM26.
+# KEY_POWER lets systemd-logind perform an orderly shutdown.
+gpio=27=op,dh
+dtoverlay=gpio-shutdown,gpio_pin=26,active_low=1,gpio_pull=up

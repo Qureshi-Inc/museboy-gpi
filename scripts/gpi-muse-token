@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+[ "$(id -u)" -eq 0 ] || { echo "Run through sudo." >&2; exit 1; }
+token=
+IFS= read -r token || true
+case "$token" in
+    mgst_*) ;;
+    *) unset token; echo "Token must begin with mgst_." >&2; exit 2 ;;
+esac
+[ "${#token}" -ge 20 ] && [ "${#token}" -le 512 ] || {
+    unset token; echo "Token length is invalid." >&2; exit 2;
+}
+dir=/var/lib/musegadget
+[ -d "$dir" ] || { unset token; echo "Install the Muse Gadget SDK first." >&2; exit 3; }
+tmp=$(mktemp "$dir/.sdk_token.XXXXXX")
+printf '%s\n' "$token" > "$tmp"
+unset token
+chmod 0600 "$tmp"
+chown root:root "$tmp"
+mv "$tmp" "$dir/sdk_token"
+if systemctl is-active --quiet musegadget.service; then
+    systemctl restart musegadget.service
+fi
+echo "SDK token saved in root-only storage."

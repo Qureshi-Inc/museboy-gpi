@@ -1,0 +1,2 @@
+Defaults:tendo !requiretty
+tendo ALL=(root) NOPASSWD: /usr/local/sbin/gpi-model-select, /usr/local/sbin/gpi-muse-token, /usr/local/sbin/gpi-muse-token-status, /usr/local/sbin/gpi-muse-pair
