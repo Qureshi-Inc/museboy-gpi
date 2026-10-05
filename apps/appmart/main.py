@@ -9,10 +9,12 @@ import posixpath
 import re
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import threading
 import time
+import uuid
 import zipfile
 
 import pygame
@@ -35,6 +37,39 @@ def draw_keycap(surf, font, x, y, key, color):
     return w
 
 APPS_DIR = "/opt/gpi/apps"
+MUSEGADGET_BIN = "/usr/local/bin/musegadget"
+MUSE_METADATA_DIR = "/var/lib/gpi-builder/appmart-metadata"
+APP_MART_AUTHOR_FILE = os.path.join(MUSE_METADATA_DIR, "author.json")
+
+
+def load_saved_author():
+    try:
+        with open(APP_MART_AUTHOR_FILE, encoding="utf-8") as f:
+            value = json.load(f).get("author", "")
+        return " ".join(str(value).split())[:48]
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
+def save_author(author):
+    """Remember the user-selected byline locally after a successful share."""
+    author = " ".join(str(author).split())[:48]
+    if not author:
+        return
+    os.makedirs(MUSE_METADATA_DIR, mode=0o2775, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix="author-", suffix=".tmp", dir=MUSE_METADATA_DIR)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"author": author}, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(temporary, 0o664)
+        os.replace(temporary, APP_MART_AUTHOR_FILE)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
 SHOP_DIR = os.path.dirname(os.path.abspath(__file__))
 DEMO_DIR = os.path.join(SHOP_DIR, "demo")
 
@@ -314,6 +349,19 @@ def is_app_installed(app_id):
         return False
 
 
+def validate_muse_metadata(metadata, app_id):
+    """Accept only concise listing facts for the exact requested installed app."""
+    if not isinstance(metadata, dict) or metadata.get("app_id") != app_id:
+        return None
+    description = " ".join(str(metadata.get("description", "")).split())
+    category = " ".join(str(metadata.get("category", "")).split()).lower()
+    if not description or len(description) > 240:
+        return None
+    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", category) or len(category) > 32:
+        return None
+    return {"description": description, "category": category}
+
+
 def uninstall_app(app):
     """Remove one validated user app from this device; never touch the shared catalog."""
     app_id = app.get("id", "")
@@ -338,7 +386,7 @@ def uninstall_app(app):
         return False, f"Remove failed: {exc}"
 
 
-def submit_app(app, author=""):
+def submit_app(app, author="", metadata=None):
     """Package one installed app and submit it privately for marketplace review."""
     if not SHOP_URL or not SUBMIT_TOKEN:
         raise ValueError("Browsing works without a key. Ask the App Mart operator for contributor access to submit apps.")
@@ -348,6 +396,11 @@ def submit_app(app, author=""):
     if not author:
         raise ValueError("Enter the name you want shown as the app author")
     manifest["author"] = author
+    if metadata is not None:
+        clean_metadata = validate_muse_metadata(metadata, manifest.get("id"))
+        if clean_metadata is None:
+            raise ValueError("Muse's marketplace details were invalid; ask again or use saved details")
+        manifest.update(clean_metadata)
     executable = manifest.get("exec", "")
     if os.path.isabs(executable):
         if os.path.commonpath((os.path.realpath(app_dir), os.path.realpath(executable))) != os.path.realpath(app_dir):
@@ -468,8 +521,14 @@ class Appmart:
         self.share_sel = 0
         self.share_thread = None
         self.share_result = ""
-        self.share_author = ""
+        self.share_author = load_saved_author()
         self.share_caps = False
+        self.share_metadata = None
+        self.metadata_thread = None
+        self.metadata_status = ""
+        self.metadata_result = None
+        self.metadata_error = ""
+        self.metadata_cancel = threading.Event()
         self.remove_app = None
         self.remove_result = ""
         self.remove_return_state = "MY_APPS"
@@ -478,6 +537,94 @@ class Appmart:
             self.share_sel = next((i for i, app in enumerate(self.share_apps)
                                    if app.get("id") == share_app_id), 0)
             self.state = "MY_APPS"
+
+    def ask_muse_for_metadata(self, app):
+        """Ask Muse to summarize this existing app; keep App Mart responsive."""
+        self.metadata_cancel.set()
+        self.metadata_cancel = threading.Event()
+        self.metadata_result = None
+        self.metadata_error = ""
+        self.share_metadata = None
+        request_id = uuid.uuid4().hex
+        request_dir = os.path.join(MUSE_METADATA_DIR, request_id)
+        request_path = os.path.join(request_dir, "request.json")
+        response_path = os.path.join(request_dir, "response.json")
+        try:
+            os.makedirs(request_dir, mode=0o2775, exist_ok=True)
+            request = {
+                "app_id": app.get("id", ""),
+                "app_name": app.get("name", ""),
+                "app_path": app.get("_path", ""),
+                "app_json_path": os.path.join(app.get("_path", ""), "app.json"),
+                "readme_path": os.path.join(app.get("_path", ""), "README.md"),
+                "response_path": response_path,
+                "fields": ["description", "category"],
+            }
+            temporary = request_path + ".tmp"
+            with open(temporary, "w", encoding="utf-8") as f:
+                json.dump(request, f, ensure_ascii=False)
+            os.replace(temporary, request_path)
+        except OSError as exc:
+            self.metadata_error = f"Couldn't prepare Muse request: {exc}"
+            return
+
+        message = (
+            "MuseBoy App Mart metadata request (not a build): read the request file "
+            f"{request_path}, then read its existing app.json and README.md. The user "
+            "already built this app; do not regenerate, edit, or install anything. "
+            "Use the existing app's behavior to create a concise description (max "
+            "240 characters) and lowercase-hyphen category. Write only JSON with "
+            "app_id, description, and category to the exact response_path using "
+            "file.write. Do this quickly; do not ask the user to repeat the idea."
+        )
+        cancel = self.metadata_cancel
+        self.metadata_status = "Sending the app details to Muse…"
+
+        def request_metadata():
+            try:
+                subprocess.run([MUSEGADGET_BIN, "send-user-msg", message],
+                               check=True, timeout=10, capture_output=True, text=True)
+                self.metadata_status = "Muse is checking the app it already built…"
+            except Exception as exc:
+                self.metadata_error = f"Muse isn't reachable: {exc}"
+                return
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline and not cancel.is_set():
+                if os.path.isfile(response_path):
+                    try:
+                        if os.path.getsize(response_path) > 16 * 1024:
+                            raise ValueError("reply was too large")
+                        with open(response_path, encoding="utf-8") as f:
+                            answer = json.load(f)
+                        clean = validate_muse_metadata(answer, app.get("id", ""))
+                        if clean is None:
+                            raise ValueError("reply needs an app description and category")
+                        self.metadata_result = clean
+                    except Exception as exc:
+                        self.metadata_error = f"Muse's details weren't usable: {exc}"
+                    return
+                time.sleep(0.25)
+            if not cancel.is_set():
+                self.metadata_error = "Muse hasn't replied yet. Retry or use the app's saved details."
+
+        self.metadata_thread = threading.Thread(target=request_metadata, daemon=True)
+        self.metadata_thread.start()
+
+    def use_saved_metadata(self):
+        """Fallback for an offline Muse session; keep the app manifest untouched."""
+        app = self.share_apps[self.share_sel]
+        candidate = {
+            "app_id": app.get("id"),
+            "description": app.get("description", "A MuseBoy community app."),
+            "category": app.get("category", "other"),
+        }
+        self.share_metadata = validate_muse_metadata(candidate, app.get("id"))
+        if self.share_metadata is None:
+            self.share_metadata = {"description": "A MuseBoy community app.", "category": "other"}
+        self.share_author = load_saved_author()
+        self.share_caps = False
+        self.keyboard_row = self.keyboard_col = 0
+        self.state = "SHARE_METADATA"
 
     def refresh_shelf(self):
         shelf = fetch_shelf(self.search_query, self.categories[self.category_index])
@@ -588,7 +735,7 @@ class Appmart:
                 dots = self.f_tiny.render(f"{self.sel + 1}/{n}", True, BRASS)
                 self.screen.blit(dots, (600, 270))
 
-        hints = [("A", "Pick it up"), ("X", "Search"), ("Y", "Category"), ("B", "Home")] if n else [("X", "Search"), ("Y", "Category"), ("B", "Home")]
+        hints = [("A", "Pick it up"), ("X", "Search"), ("Y", "Category"), ("Start", "My apps"), ("B", "Home")] if n else [("X", "Search"), ("Y", "Category"), ("Start", "My apps"), ("B", "Home")]
         self.draw_footer(hints)
 
     def draw_search(self, t):
@@ -641,26 +788,67 @@ class Appmart:
         self.draw_bg(t)
         self.draw_header()
         app = self.share_apps[self.share_sel]
-        self.draw_bolt(36, 112, "Muse made the app details. Choose its byline.")
+        self.draw_bolt(36, 108, "Muse checked the app it already made.")
         title = self.f_name.render(f"Share {app.get('name', 'app')}", True, CREAM)
         self.screen.blit(title, (225, 72))
-        box = pygame.Rect(225, 120, 390, 42)
+        metadata = self.share_metadata or {}
+        description = metadata.get("description", "")
+        words, lines, current = description.split(), [], ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if self.f_tiny.size(candidate)[0] > 375 and current:
+                lines.append(current)
+                current = word
+            else:
+                current = candidate
+        if current:
+            lines.append(current)
+        for i, line in enumerate(lines[:2]):
+            self.screen.blit(self.f_tiny.render(line, True, CREAM), (230, 119 + i * 17))
+        cat = self.f_tiny.render(f"Category: {metadata.get('category', 'other')}", True, BRASS)
+        self.screen.blit(cat, (230, 153))
+        label = self.f_tiny.render("Your byline", True, BRASS)
+        self.screen.blit(label, (230, 174))
+        box = pygame.Rect(225, 190, 390, 36)
         rounded(self.screen, box, (52, 38, 24), 9)
         value = self.share_author or "Choose an author name…"
         self.screen.blit(self.f_small.render(value[:42], True, CREAM if self.share_author else BRASS),
-                         (box.x + 12, box.y + 12))
+                         (box.x + 12, box.y + 9))
         rows = [list("abcdefghij"), list("klmnopqrst"), list("uvwxyz09-_"), ["⌫", "space", "Aa", "Submit"]]
         for ri, row in enumerate(rows):
             for ci, char in enumerate(row):
                 selected = ri == self.keyboard_row and ci == self.keyboard_col
-                rect = pygame.Rect(228 + ci * 37, 184 + ri * 47, 32, 34)
+                rect = pygame.Rect(228 + ci * 37, 232 + ri * 34, 32, 30)
                 if ri == 3:
-                    rect = pygame.Rect((220, 308, 396, 500)[ci], 325,
-                                       (80, 80, 80, 110)[ci], 34)
+                    rect = pygame.Rect((220, 308, 396, 500)[ci], 334,
+                                       (80, 80, 80, 110)[ci], 32)
                 rounded(self.screen, rect, AMBER if selected else (52, 38, 24), 6)
                 label = self.f_tiny.render(char, True, BLACK if selected else CREAM)
                 self.screen.blit(label, label.get_rect(center=rect.center))
         self.draw_footer([("D-pad", "Choose"), ("A", "Type / submit"), ("X", "Clear"), ("Y", "Delete"), ("B", "Back")])
+
+    def draw_muse_metadata(self, t):
+        self.draw_bg(t)
+        self.draw_header()
+        app = self.share_apps[self.share_sel]
+        self.draw_bolt(36, 120, "I remember making this one.")
+        title = self.f_name.render("Getting App Mart details", True, CREAM)
+        self.screen.blit(title, title.get_rect(center=(420, 144)))
+        name = self.f_small.render(app.get("name", "Your app")[:34], True, BRASS)
+        self.screen.blit(name, name.get_rect(center=(420, 180)))
+        msg = self.f_small.render(self.metadata_status or "Asking Muse…", True, CREAM)
+        self.screen.blit(msg, msg.get_rect(center=(420, 225)))
+        self.draw_footer([("B", "Cancel")])
+
+    def draw_metadata_failed(self, t):
+        self.draw_bg(t)
+        self.draw_header()
+        self.draw_bolt(36, 120, "No worries, we can use what’s saved.")
+        title = self.f_name.render("Muse details unavailable", True, CREAM)
+        self.screen.blit(title, title.get_rect(center=(420, 145)))
+        msg = self.f_tiny.render((self.metadata_error or "Muse didn’t reply.")[:58], True, BRASS)
+        self.screen.blit(msg, msg.get_rect(center=(420, 183)))
+        self.draw_footer([("A", "Use saved details"), ("X", "Ask Muse again"), ("B", "Cancel")])
 
     def draw_remove_confirm(self, t):
         self.draw_bg(t)
@@ -749,7 +937,7 @@ class Appmart:
         rounded(self.screen, btn, (210, 105, 76) if installed else AMBER, 12)
         bt = self.f_name.render("Remove it" if installed else "Slot it in", True, BLACK)
         self.screen.blit(bt, bt.get_rect(center=btn.center))
-        self.draw_footer([("A", "Remove it" if installed else "Slot it in"), ("B", "Back to shelf")])
+        self.draw_footer([("A", "Remove it" if installed else "Slot it in"), ("Start", "My apps"), ("B", "Back to shelf")])
 
     def draw_installing(self, t):
         self.draw_bg(t)
@@ -837,6 +1025,14 @@ class Appmart:
         running = True
         while running:
             t = time.time()
+            if self.state == "MUSE_METADATA" and self.metadata_result is not None:
+                self.share_metadata = self.metadata_result
+                self.share_author = load_saved_author()
+                self.share_caps = False
+                self.keyboard_row = self.keyboard_col = 0
+                self.state = "SHARE_METADATA"
+            elif self.state == "MUSE_METADATA" and self.metadata_error:
+                self.state = "METADATA_FAILED"
             for e in pygame.event.get():
                 if e.type == pygame.QUIT:
                     running = False
@@ -845,7 +1041,10 @@ class Appmart:
                     if k in (pygame.K_ESCAPE,):
                         if self.state in ("DETAIL", "SEARCH", "MY_APPS"):
                             self.state = "SHELF"
-                        elif self.state == "SHARE_METADATA":
+                        elif self.state in ("SHARE_METADATA", "METADATA_FAILED"):
+                            self.state = "MY_APPS"
+                        elif self.state == "MUSE_METADATA":
+                            self.metadata_cancel.set()
                             self.state = "MY_APPS"
                         elif self.state == "REMOVE_CONFIRM":
                             self.state = self.remove_return_state
@@ -915,15 +1114,16 @@ class Appmart:
                         elif k in (pygame.K_DOWN, pygame.K_RIGHT) and self.share_apps:
                             self.share_sel = (self.share_sel + 1) % len(self.share_apps)
                         elif k in (pygame.K_RETURN, pygame.K_KP_ENTER) and self.share_apps:
-                            self.share_author = ""
-                            self.keyboard_row = self.keyboard_col = 0
-                            self.state = "SHARE_METADATA"
+                            self.ask_muse_for_metadata(self.share_apps[self.share_sel])
+                            self.state = "MUSE_METADATA"
                         elif k == pygame.K_TAB and self.share_apps:
                             self.remove_app = self.share_apps[self.share_sel]
                             self.remove_result = ""
                             self.remove_return_state = "MY_APPS"
                             self.state = "REMOVE_CONFIRM"
                         elif k == pygame.K_ESCAPE:
+                            self.state = "SHELF"
+                        elif k == pygame.K_SPACE:
                             self.state = "SHELF"
                     elif self.state == "SHARE_METADATA":
                         rows = ["abcdefghij", "klmnopqrst", "uvwxyz09-_", ["⌫", "space", "Aa", "Submit"]]
@@ -958,14 +1158,27 @@ class Appmart:
                                 self.share_result = "Preparing and uploading…"
                                 selected_app = self.share_apps[self.share_sel]
                                 author = self.share_author
-                                def upload(app=selected_app, byline=author):
+                                details = dict(self.share_metadata or {})
+                                def upload(app=selected_app, byline=author, metadata=details):
                                     try:
-                                        self.share_result = submit_app(app, byline)
+                                        self.share_result = submit_app(app, byline, metadata=metadata)
+                                        try:
+                                            save_author(byline)
+                                        except OSError:
+                                            pass  # Sharing succeeded; a full disk must not undo it.
                                     except Exception as exc:
                                         self.share_result = f"Could not share: {exc}"
                                 self.share_thread = threading.Thread(target=upload, daemon=True)
                                 self.share_thread.start()
                                 self.state = "SHARING"
+                    elif self.state == "METADATA_FAILED":
+                        if k in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                            self.use_saved_metadata()
+                        elif k == pygame.K_TAB:
+                            self.ask_muse_for_metadata(self.share_apps[self.share_sel])
+                            self.state = "MUSE_METADATA"
+                        elif k == pygame.K_ESCAPE:
+                            self.state = "MY_APPS"
                     elif self.state == "REMOVE_CONFIRM":
                         if k in (pygame.K_RETURN, pygame.K_KP_ENTER) and self.remove_app:
                             ok, message = uninstall_app(self.remove_app)
@@ -989,7 +1202,11 @@ class Appmart:
                         elif not busy and k == pygame.K_ESCAPE:
                             self.state = "MY_APPS"
                     elif self.state == "DETAIL":
-                        if k in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                        if k == pygame.K_SPACE:
+                            self.share_apps = installed_apps()
+                            self.share_sel = 0
+                            self.state = "MY_APPS"
+                        elif k in (pygame.K_RETURN, pygame.K_KP_ENTER):
                             if is_app_installed(self.detail_app.get("id")):
                                 self.remove_app = self.detail_app
                                 self.remove_result = ""
@@ -1016,6 +1233,10 @@ class Appmart:
                 self.draw_my_apps(t)
             elif self.state == "SHARE_METADATA":
                 self.draw_share_metadata(t)
+            elif self.state == "MUSE_METADATA":
+                self.draw_muse_metadata(t)
+            elif self.state == "METADATA_FAILED":
+                self.draw_metadata_failed(t)
             elif self.state == "REMOVE_CONFIRM":
                 self.draw_remove_confirm(t)
             elif self.state == "SHARING":

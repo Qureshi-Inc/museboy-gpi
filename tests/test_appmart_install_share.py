@@ -85,13 +85,36 @@ class AppMartInstallShareTests(unittest.TestCase):
             return Response()
 
         requests_stub.post = fake_post
-        result = appmart.submit_app(app, "  Moiz   Qureshi ")
+        muse_details = {"app_id": "sample", "description": "A quick, polished card game.", "category": "games"}
+        result = appmart.submit_app(app, "  Moiz   Qureshi ", metadata=muse_details)
         self.assertIn("Sent for review", result)
         self.assertEqual(captured["manifest"]["author"], "Moiz Qureshi")
-        self.assertEqual(captured["manifest"]["description"], "Muse wrote this")
-        self.assertEqual(captured["manifest"]["category"], "tools")
+        self.assertEqual(captured["manifest"]["description"], "A quick, polished card game.")
+        self.assertEqual(captured["manifest"]["category"], "games")
+        self.assertEqual(app["description"], "Muse wrote this")  # Installed app is untouched.
         self.assertTrue(captured["icon"].startswith(b"\x89PNG\r\n\x1a\n"))
         self.assertTrue(captured["bundle_icon"].startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_muse_metadata_must_match_requested_app_and_market_rules(self):
+        self.assertEqual(
+            appmart.validate_muse_metadata(
+                {"app_id": "sample", "description": "  A   little app. ", "category": "Tools"},
+                "sample"),
+            {"description": "A little app.", "category": "tools"})
+        self.assertIsNone(appmart.validate_muse_metadata(
+            {"app_id": "different", "description": "A little app.", "category": "tools"}, "sample"))
+        self.assertIsNone(appmart.validate_muse_metadata(
+            {"app_id": "sample", "description": "A little app.", "category": "bad category"}, "sample"))
+
+    def test_saved_author_is_prefilled_and_persisted(self):
+        old_dir, old_file = appmart.MUSE_METADATA_DIR, appmart.APP_MART_AUTHOR_FILE
+        appmart.MUSE_METADATA_DIR = self.tmp.name
+        appmart.APP_MART_AUTHOR_FILE = str(Path(self.tmp.name) / "author.json")
+        try:
+            appmart.save_author("  Moiz   Qureshi ")
+            self.assertEqual(appmart.load_saved_author(), "Moiz Qureshi")
+        finally:
+            appmart.MUSE_METADATA_DIR, appmart.APP_MART_AUTHOR_FILE = old_dir, old_file
 
 
 if __name__ == "__main__":

@@ -33,7 +33,7 @@ for group in input audio video render gpio; do
 done
 install -d -o root -g tendo -m 2775 /opt/gpi/{apps,common,launcher,input}
 install -d -o root -g tendo -m 2775 /opt/gpi/apps/{appmart,builder,settings}
-install -d -o root -g tendo -m 2775 /var/lib/gpi-builder/{requests,builds,.tmp}
+install -d -o root -g tendo -m 2775 /var/lib/gpi-builder/{requests,builds,.tmp,appmart-metadata}
 install -d -o root -g tendo -m 2775 /opt/gpi/local-ai/{bin,models}
 
 install -m 0644 "$ROOT/common/gpi_ui.py" "$ROOT/common/bolt.py" /opt/gpi/common/
@@ -126,7 +126,7 @@ chmod 0644 /opt/gpi/local-ai/models/*
 chmod 0755 /opt/gpi/local-ai/bin/*
 install -d -o root -g root -m 0755 /var/lib/gpi-builder
 chown -R root:tendo /var/lib/gpi-builder
-chmod 2775 /var/lib/gpi-builder /var/lib/gpi-builder/{requests,builds,.tmp}
+chmod 2775 /var/lib/gpi-builder /var/lib/gpi-builder/{requests,builds,.tmp,appmart-metadata}
 
 # Install Muse's maintained Linux SDK without a shared token and without
 # opening pairing yet. The owner enters their own SDK token in Settings.

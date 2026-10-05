@@ -61,6 +61,24 @@ any author value in `app.json`, so never guess who should receive attribution.
 Include an `icon.png` when practical. The GPi packages the built app and these
 Muse-generated listing details together for human review before publication.
 
+## Fill App Mart details for an existing app
+
+When MuseBoy sends an **App Mart metadata request**, this is not a build job.
+Read the request JSON at the exact path in the message, then read the named
+app's existing `app.json` and `README.md` if present. Use what is already implemented to
+return a concise `description` (240 characters or fewer) and a `category`
+(lowercase hyphenated slug). Do not modify or regenerate the app, its name, ID,
+version, code, or files. Write only this JSON object to the request's exact
+`response_path` with `file.write`:
+
+```json
+{"app_id":"the requested id","description":"One sentence describing the app as it exists","category":"lowercase-category"}
+```
+
+This response is marketplace metadata only; the device owner chooses the
+public author name separately. Respond quickly and do not ask the user to
+repeat the app idea.
+
 ## Change the handoff
 
 Keep the device request directory limited to `transcript.txt` and `meta.json`.
