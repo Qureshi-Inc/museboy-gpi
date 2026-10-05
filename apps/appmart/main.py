@@ -300,6 +300,20 @@ def installed_apps():
     return result
 
 
+def is_app_installed(app_id):
+    """Derive installed state from the persistent app folder, including after reboot."""
+    if not isinstance(app_id, str) or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?", app_id):
+        return False
+    path = os.path.join(APPS_DIR, app_id)
+    if os.path.islink(path) or not os.path.isdir(path):
+        return False
+    try:
+        with open(os.path.join(path, "app.json"), encoding="utf-8") as f:
+            return json.load(f).get("id") == app_id
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def uninstall_app(app):
     """Remove one validated user app from this device; never touch the shared catalog."""
     app_id = app.get("id", "")
@@ -324,12 +338,16 @@ def uninstall_app(app):
         return False, f"Remove failed: {exc}"
 
 
-def submit_app(app):
+def submit_app(app, author=""):
     """Package one installed app and submit it privately for marketplace review."""
     if not SHOP_URL or not SUBMIT_TOKEN:
         raise ValueError("Browsing works without a key. Ask the App Mart operator for contributor access to submit apps.")
     app_dir = app["_path"]
     manifest = {key: value for key, value in app.items() if not key.startswith("_")}
+    author = " ".join(str(author).split())[:48]
+    if not author:
+        raise ValueError("Enter the name you want shown as the app author")
+    manifest["author"] = author
     executable = manifest.get("exec", "")
     if os.path.isabs(executable):
         if os.path.commonpath((os.path.realpath(app_dir), os.path.realpath(executable))) != os.path.realpath(app_dir):
@@ -422,6 +440,7 @@ class Appmart:
         self.anim_t0 = 0
         self.installed_ok = False
         self.install_msg = ""
+        self.install_attempted = False
         self.flash = 0
         self.keyboard_row = 0
         self.keyboard_col = 0
@@ -429,8 +448,11 @@ class Appmart:
         self.share_sel = 0
         self.share_thread = None
         self.share_result = ""
+        self.share_author = ""
+        self.share_caps = False
         self.remove_app = None
         self.remove_result = ""
+        self.remove_return_state = "MY_APPS"
         if share_app_id:
             self.share_apps = installed_apps()
             self.share_sel = next((i for i, app in enumerate(self.share_apps)
@@ -458,10 +480,13 @@ class Appmart:
 
     # ---------- background ----------
     def draw_bg(self, t):
+        # Fully repaint every pixel on every frame so old screens cannot ghost
+        # through when moving between shelf, detail, search, and dialogs.
+        self.screen.fill(BG_TOP)
         for y in range(0, H, 4):
             k = y / H
             c = tuple(int(BG_TOP[i] + (BG_BOT[i] - BG_TOP[i]) * k) for i in range(3))
-            pygame.draw.line(self.screen, c, (0, y), (W, y))
+            pygame.draw.rect(self.screen, c, (0, y, W, min(4, H - y)))
         # faint shelf planks
         for y in (150, 300):
             pygame.draw.line(self.screen, (60, 44, 28), (0, y), (W, y), 2)
@@ -536,6 +561,9 @@ class Appmart:
                 nm = self.f_tiny.render(app.get("name", "?")[:14], True,
                                         CREAM if selected else BRASS)
                 self.screen.blit(nm, nm.get_rect(center=(cx, 348)))
+                if is_app_installed(app.get("id")):
+                    badge = self.f_tiny.render("ON DEVICE", True, AMBER)
+                    self.screen.blit(badge, badge.get_rect(center=(cx, 366)))
             if n > vis:
                 dots = self.f_tiny.render(f"{self.sel + 1}/{n}", True, BRASS)
                 self.screen.blit(dots, (600, 270))
@@ -589,6 +617,31 @@ class Appmart:
             self.screen.blit(label, (rect.x + 12, rect.y + 7))
         self.draw_footer([("A", "Share for review"), ("X", "Remove from GPi"), ("B", "Back"), ("Start", "Home")])
 
+    def draw_share_metadata(self, t):
+        self.draw_bg(t)
+        self.draw_header()
+        app = self.share_apps[self.share_sel]
+        self.draw_bolt(36, 112, "Muse made the app details. Choose its byline.")
+        title = self.f_name.render(f"Share {app.get('name', 'app')}", True, CREAM)
+        self.screen.blit(title, (225, 72))
+        box = pygame.Rect(225, 120, 390, 42)
+        rounded(self.screen, box, (52, 38, 24), 9)
+        value = self.share_author or "Choose an author name…"
+        self.screen.blit(self.f_small.render(value[:42], True, CREAM if self.share_author else BRASS),
+                         (box.x + 12, box.y + 12))
+        rows = [list("abcdefghij"), list("klmnopqrst"), list("uvwxyz09-_"), ["⌫", "space", "Aa", "Submit"]]
+        for ri, row in enumerate(rows):
+            for ci, char in enumerate(row):
+                selected = ri == self.keyboard_row and ci == self.keyboard_col
+                rect = pygame.Rect(228 + ci * 37, 184 + ri * 47, 32, 34)
+                if ri == 3:
+                    rect = pygame.Rect((220, 308, 396, 500)[ci], 325,
+                                       (80, 80, 80, 110)[ci], 34)
+                rounded(self.screen, rect, AMBER if selected else (52, 38, 24), 6)
+                label = self.f_tiny.render(char, True, BLACK if selected else CREAM)
+                self.screen.blit(label, label.get_rect(center=rect.center))
+        self.draw_footer([("D-pad", "Choose"), ("A", "Type / submit"), ("X", "Clear"), ("Y", "Delete"), ("B", "Back")])
+
     def draw_remove_confirm(self, t):
         self.draw_bg(t)
         self.draw_header()
@@ -639,7 +692,9 @@ class Appmart:
         self.draw_bg(t)
         self.draw_header()
         app = self.detail_app
-        self.draw_bolt(36, 120, "A fine choice! Slot it in?")
+        installed = is_app_installed(app.get("id"))
+        self.draw_bolt(36, 120, "Already in your pocket. Want it gone?" if installed
+                       else "A fine choice! Slot it in?")
         # card
         card = pygame.Rect(210, 90, 410, 300)
         rounded(self.screen, card, (52, 38, 24), 18)
@@ -671,10 +726,10 @@ class Appmart:
             self.screen.blit(tag, (tx, 282))
         # slot-in button
         btn = pygame.Rect(240, 320, 350, 52)
-        rounded(self.screen, btn, AMBER, 12)
-        bt = self.f_name.render("Slot it in", True, BLACK)
+        rounded(self.screen, btn, (210, 105, 76) if installed else AMBER, 12)
+        bt = self.f_name.render("Remove it" if installed else "Slot it in", True, BLACK)
         self.screen.blit(bt, bt.get_rect(center=btn.center))
-        self.draw_footer([("A", "Slot it in"), ("B", "Back to shelf")])
+        self.draw_footer([("A", "Remove it" if installed else "Slot it in"), ("B", "Back to shelf")])
 
     def draw_installing(self, t):
         self.draw_bg(t)
@@ -683,31 +738,44 @@ class Appmart:
         self.draw_bolt(36, 120)
         el = t - self.anim_t0
         app = self.detail_app
-        # glowing slot at bottom
+        # A warm halo pulses around the destination while the tile glides in.
         slot = pygame.Rect(220, 400, 200, 54)
-        glow = int(120 + 80 * math.sin(el * 6))
-        rounded(self.screen, slot.inflate(12, 12), (glow, glow // 2, 20), 16)
+        pulse = (math.sin(el * 5.5) + 1) / 2
+        glow = int(70 + 130 * pulse)
+        halo = pygame.Surface((W, H), pygame.SRCALPHA)
+        pygame.draw.ellipse(halo, (255, 174, 46, int(30 + 48 * pulse)), slot.inflate(78, 34))
+        self.screen.blit(halo, (0, 0))
+        rounded(self.screen, slot.inflate(12, 12), (glow, int(glow * .48), 20), 16)
         rounded(self.screen, slot, (30, 22, 14), 12)
         rounded(self.screen, slot, AMBER, 12, 2)
-        st = self.f_small.render("SLOT", True, BRASS)
+        st = self.f_small.render("YOUR POCKET", True, BRASS)
         self.screen.blit(st, st.get_rect(center=(320, 427)))
 
         if el < 0.7:
-            # tile hovers at center
-            k = el / 0.7
-            y = 200
-            sz = 110
+            # Soft hover gives the little app a beat before it travels.
+            y = 198 + math.sin(el * 7) * 8
+            sz = int(104 + 8 * math.sin(el * 5))
         elif el < 1.7:
-            # slides down into slot
-            k = (el - 0.7) / 1.0
-            k = k * k
-            y = 200 + (400 - 200) * k
-            sz = int(110 - 30 * k)
+            # Smooth ease and a little arc make the tile feel pocketed.
+            phase = (el - 0.7) / 1.0
+            eased = phase * phase * (3 - 2 * phase)
+            y = 198 + 202 * eased - math.sin(phase * math.pi) * 34
+            sz = int(108 - 32 * eased)
+            trail = pygame.Surface((W, H), pygame.SRCALPHA)
+            for j in range(7):
+                fraction = (j + 1) / 8
+                px = int(320 + math.sin(t * 4 + j) * (8 + 20 * fraction))
+                py = int(y - (j + 1) * 22)
+                pygame.draw.circle(trail, (255, 192, 76, max(0, 145 - j * 18)),
+                                   (px, py), max(2, 8 - j))
+            self.screen.blit(trail, (0, 0))
         else:
-            y, sz = 400, 80
+            phase = min(1, (el - 1.7) / 0.45)
+            y, sz = 400, int(76 + 10 * math.sin(phase * math.pi))
         icon = self.icon(app, max(sz, 40))
         self.screen.blit(icon, (320 - sz // 2, int(y - sz // 2)))
-        if el >= 1.7 and self.flash <= 0:
+        if el >= 1.7 and not self.install_attempted:
+            self.install_attempted = True
             self.flash = 0.35
             # do the actual install once, at the click
             ok, msg = install_app(app)
@@ -718,9 +786,12 @@ class Appmart:
             fl = pygame.Surface((W, H), pygame.SRCALPHA)
             fl.fill((255, 240, 200, a))
             self.screen.blit(fl, (0, 0))
-            ring = pygame.Rect(0, 0, 120, 120)
+            ring_size = int(88 + (1 - self.flash / .35) * 130)
+            ring = pygame.Rect(0, 0, ring_size, ring_size)
             ring.center = (320, 427)
-            pygame.draw.ellipse(self.screen, (255, 240, 200, a), ring, 4)
+            ring_layer = pygame.Surface((W, H), pygame.SRCALPHA)
+            pygame.draw.ellipse(ring_layer, (255, 240, 200, a), ring, 4)
+            self.screen.blit(ring_layer, (0, 0))
         if el > 2.3:
             self.state = "DONE"
             self.anim_t0 = t
@@ -754,8 +825,10 @@ class Appmart:
                     if k in (pygame.K_ESCAPE,):
                         if self.state in ("DETAIL", "SEARCH", "MY_APPS"):
                             self.state = "SHELF"
-                        elif self.state == "REMOVE_CONFIRM":
+                        elif self.state == "SHARE_METADATA":
                             self.state = "MY_APPS"
+                        elif self.state == "REMOVE_CONFIRM":
+                            self.state = self.remove_return_state
                         elif self.state == "SHARING":
                             if not (self.share_thread and self.share_thread.is_alive()):
                                 self.state = "MY_APPS"
@@ -822,22 +895,57 @@ class Appmart:
                         elif k in (pygame.K_DOWN, pygame.K_RIGHT) and self.share_apps:
                             self.share_sel = (self.share_sel + 1) % len(self.share_apps)
                         elif k in (pygame.K_RETURN, pygame.K_KP_ENTER) and self.share_apps:
-                            self.share_result = "Preparing and uploading…"
-                            selected_app = self.share_apps[self.share_sel]
-                            def upload(app=selected_app):
-                                try:
-                                    self.share_result = submit_app(app)
-                                except Exception as exc:
-                                    self.share_result = f"Could not share: {exc}"
-                            self.share_thread = threading.Thread(target=upload, daemon=True)
-                            self.share_thread.start()
-                            self.state = "SHARING"
+                            self.share_author = ""
+                            self.keyboard_row = self.keyboard_col = 0
+                            self.state = "SHARE_METADATA"
                         elif k == pygame.K_TAB and self.share_apps:
                             self.remove_app = self.share_apps[self.share_sel]
                             self.remove_result = ""
+                            self.remove_return_state = "MY_APPS"
                             self.state = "REMOVE_CONFIRM"
                         elif k == pygame.K_ESCAPE:
                             self.state = "SHELF"
+                    elif self.state == "SHARE_METADATA":
+                        rows = ["abcdefghij", "klmnopqrst", "uvwxyz09-_", ["⌫", "space", "Aa", "Submit"]]
+                        if k in (pygame.K_LEFT, pygame.K_RIGHT, pygame.K_UP, pygame.K_DOWN):
+                            if k == pygame.K_LEFT:
+                                self.keyboard_col = (self.keyboard_col - 1) % len(rows[self.keyboard_row])
+                            elif k == pygame.K_RIGHT:
+                                self.keyboard_col = (self.keyboard_col + 1) % len(rows[self.keyboard_row])
+                            elif k == pygame.K_UP:
+                                self.keyboard_row = (self.keyboard_row - 1) % 4
+                                self.keyboard_col = min(self.keyboard_col, len(rows[self.keyboard_row]) - 1)
+                            else:
+                                self.keyboard_row = (self.keyboard_row + 1) % 4
+                                self.keyboard_col = min(self.keyboard_col, len(rows[self.keyboard_row]) - 1)
+                        elif k == pygame.K_y:
+                            self.share_author = self.share_author[:-1]
+                        elif k == pygame.K_TAB:
+                            self.share_author = ""
+                        elif k in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                            if self.keyboard_row < 3:
+                                if len(self.share_author) < 48:
+                                    char = rows[self.keyboard_row][self.keyboard_col]
+                                    self.share_author += char.upper() if self.share_caps else char
+                            elif self.keyboard_col == 0:
+                                self.share_author = self.share_author[:-1]
+                            elif self.keyboard_col == 1:
+                                if len(self.share_author) < 48:
+                                    self.share_author += " "
+                            elif self.keyboard_col == 2:
+                                self.share_caps = not self.share_caps
+                            elif self.share_author.strip():
+                                self.share_result = "Preparing and uploading…"
+                                selected_app = self.share_apps[self.share_sel]
+                                author = self.share_author
+                                def upload(app=selected_app, byline=author):
+                                    try:
+                                        self.share_result = submit_app(app, byline)
+                                    except Exception as exc:
+                                        self.share_result = f"Could not share: {exc}"
+                                self.share_thread = threading.Thread(target=upload, daemon=True)
+                                self.share_thread.start()
+                                self.state = "SHARING"
                     elif self.state == "REMOVE_CONFIRM":
                         if k in (pygame.K_RETURN, pygame.K_KP_ENTER) and self.remove_app:
                             ok, message = uninstall_app(self.remove_app)
@@ -849,10 +957,10 @@ class Appmart:
                                 self.share_sel = min(self.share_sel,
                                                      max(0, len(self.share_apps) - 1))
                                 self.remove_app = None
-                                self.state = "MY_APPS"
+                                self.state = self.remove_return_state
                         elif k == pygame.K_ESCAPE:
                             self.remove_app = None
-                            self.state = "MY_APPS"
+                            self.state = self.remove_return_state
                     elif self.state == "SHARING":
                         busy = self.share_thread is not None and self.share_thread.is_alive()
                         if not busy and k in (pygame.K_RETURN, pygame.K_KP_ENTER):
@@ -862,10 +970,17 @@ class Appmart:
                             self.state = "MY_APPS"
                     elif self.state == "DETAIL":
                         if k in (pygame.K_RETURN, pygame.K_KP_ENTER):
-                            self.state = "INSTALLING"
-                            self.anim_t0 = t
-                            self.flash = 0
-                            self.bolt_mood = "build"
+                            if is_app_installed(self.detail_app.get("id")):
+                                self.remove_app = self.detail_app
+                                self.remove_result = ""
+                                self.remove_return_state = "DETAIL"
+                                self.state = "REMOVE_CONFIRM"
+                            else:
+                                self.state = "INSTALLING"
+                                self.anim_t0 = t
+                                self.flash = 0
+                                self.install_attempted = False
+                                self.bolt_mood = "build"
                     elif self.state == "DONE":
                         if k in (pygame.K_RETURN, pygame.K_KP_ENTER):
                             self.bolt_mood = "idle"
@@ -879,6 +994,8 @@ class Appmart:
                 self.draw_search(t)
             elif self.state == "MY_APPS":
                 self.draw_my_apps(t)
+            elif self.state == "SHARE_METADATA":
+                self.draw_share_metadata(t)
             elif self.state == "REMOVE_CONFIRM":
                 self.draw_remove_confirm(t)
             elif self.state == "SHARING":

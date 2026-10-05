@@ -48,6 +48,19 @@ permission to fetch the skill. The one-time grant covers that skill file only.
    blockers and the next action instead of leaving a vague `installing` or
    `testing` state.
 
+## Prepare apps for App Mart
+
+When creating or updating an app, keep its `app.json` marketplace-ready. Include
+`id` (stable lowercase slug), `name` (40 characters or fewer), `description`
+(one clear sentence, 240 characters or fewer), `category` (lowercase hyphenated
+slug), `version` (positive integer), and `exec` (the app's launch file inside
+its own folder). Choose the name, description, category, and version from the
+actual app you built; do not invent capabilities or data sources. App Mart asks
+the device owner for the public author/byline at submission time and overrides
+any author value in `app.json`, so never guess who should receive attribution.
+Include an `icon.png` when practical. The GPi packages the built app and these
+Muse-generated listing details together for human review before publication.
+
 ## Change the handoff
 
 Keep the device request directory limited to `transcript.txt` and `meta.json`.

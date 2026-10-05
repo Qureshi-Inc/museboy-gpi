@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101216">
-  <title>MuseBoy Mart — tiny apps, big imagination</title>
+  <title>Muse Boy Appmart — tiny apps, big imagination</title>
   <style>
     :root { color-scheme:dark; --bg:#101216; --panel:#191c22; --line:#343943; --cream:#f5efdf; --muted:#a3a7b1; --gold:#ffc247; --aqua:#78e4d2; }
     * { box-sizing:border-box; }
@@ -15,7 +15,9 @@
     .brand { display:flex; align-items:center; gap:12px; font-weight:850; font-size:19px; letter-spacing:.02em; }
     .mark { width:36px; height:36px; display:grid; place-items:center; border-radius:12px; background:var(--gold); color:#20190e; font-size:22px; transform:rotate(-5deg); }
     .tag { color:var(--aqua); font-size:12px; text-transform:uppercase; letter-spacing:.16em; }
-    .hero { padding:70px 0 44px; max-width:760px; }
+    .hero { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(220px,.8fr); align-items:center; gap:34px; padding:52px 0 44px; }
+    .hero-copy { min-width:0; }
+    .hero-device { display:block; width:100%; max-width:340px; max-height:450px; object-fit:contain; justify-self:center; filter:drop-shadow(0 24px 30px #0008); }
     .eyebrow { color:var(--aqua); text-transform:uppercase; letter-spacing:.2em; font-size:12px; font-weight:800; }
     h1 { margin:12px 0 10px; font-size:clamp(42px,8vw,82px); line-height:.98; letter-spacing:-.055em; }
     h1 span { color:var(--gold); }
@@ -46,13 +48,14 @@
     footer { border-top:1px solid #ffffff1a; margin-top:45px; padding-top:18px; display:flex; justify-content:space-between; gap:14px; color:var(--muted); font-size:12px; }
     footer a { text-decoration:none; }
     footer a:hover { color:var(--gold); }
-    @media(max-width:600px) { main{padding:18px 15px 44px}.hero{padding:54px 0 32px}.toolbar{grid-template-columns:1fr;gap:8px}#count{text-align:left}footer{flex-direction:column} }
+    @media(max-width:700px) { .hero{grid-template-columns:1fr;gap:8px;padding:48px 0 32px}.hero-device{width:min(54vw,230px);max-height:290px;margin-top:4px} }
+    @media(max-width:600px) { main{padding:18px 15px 44px}.toolbar{grid-template-columns:1fr;gap:8px}#count{text-align:left}footer{flex-direction:column} }
   </style>
 </head>
 <body>
 <main>
-  <header><div class="brand"><span class="mark" aria-hidden="true">✦</span> MUSEBOY MART</div><div class="tag">Made for the little screen</div></header>
-  <section class="hero"><div class="eyebrow">A pocket-sized arcade for ideas</div><h1>Small screen.<br><span>Wild worlds.</span></h1><p>Discover tiny games and useful oddities made by the MuseBoy community. Pick one, download it, and slot it into your GPi.</p></section>
+  <header><div class="brand"><span class="mark" aria-hidden="true">✦</span> Muse Boy Appmart</div><div class="tag">Made for the little screen</div></header>
+  <section class="hero"><div class="hero-copy"><div class="eyebrow">A pocket-sized arcade for ideas</div><h1>Small screen.<br><span>Wild worlds.</span></h1><p>Discover tiny games and useful oddities made by the MuseBoy community. Pick one, download it, and slot it into your GPi.</p></div><img class="hero-device" src="/museboy-device-cutout.png" alt="Muse Boy handheld with its app screen open" width="1097" height="1434"></section>
   <section class="toolbar" aria-label="Find apps"><label class="search"><input id="query" type="search" placeholder="Search apps, creators, ideas…" autocomplete="off" aria-label="Search apps"></label><div id="count" aria-live="polite"></div></section>
   <nav id="categories" aria-label="App categories"></nav>
   <div id="status" role="status">Loading the shelf…</div>
