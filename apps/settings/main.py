@@ -10,6 +10,7 @@ import os
 import pty
 import re
 import select
+import shutil
 import subprocess
 import sys
 import threading
@@ -247,7 +248,35 @@ def wifi_scan():
                 "known": ssid in saved}
         if ssid not in aps or signal > aps[ssid]["signal"] or item["connected"]:
             aps[ssid] = item
-    return {"aps": sorted(aps.values(), key=lambda ap: (not ap["connected"], -ap["signal"], ap["ssid"]))}
+    return {"aps": sorted(aps.values(), key=lambda ap: (not ap["connected"], -ap["signal"], ap["ssid"])),
+            "connectivity": get_network_connectivity()}
+
+
+def get_network_connectivity():
+    """Ask NetworkManager whether Wi-Fi has internet or needs portal sign-in."""
+    rc, out = command(["nmcli", "networking", "connectivity", "check"], timeout=12)
+    state = out.strip().lower()
+    return state if rc == 0 and state in {"none", "portal", "limited", "full", "unknown"} else "unknown"
+
+
+def launch_wifi_portal():
+    """Open an HTTP page Chromium can let a captive Wi-Fi portal intercept."""
+    browser = shutil.which("chromium") or shutil.which("chromium-browser")
+    if not browser:
+        return {"portal_browser": True, "ok": False,
+                "message": "Wi-Fi browser is missing; reinstall MuseBoy with browser support."}
+    try:
+        subprocess.Popen(
+            [browser, "--kiosk", "--no-first-run", "--no-default-browser-check",
+             "--noerrdialogs", "--user-data-dir=/home/tendo/.config/gpi-wifi-portal",
+             "http://neverssl.com/"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, close_fds=True)
+        return {"portal_browser": True, "ok": True,
+                "message": "Accept the Wi-Fi terms in the browser, then press Select for Home."}
+    except OSError:
+        return {"portal_browser": True, "ok": False,
+                "message": "Could not open the Wi-Fi sign-in browser."}
 
 
 def wifi_connect(ssid, password=None, hidden=False):
@@ -258,7 +287,9 @@ def wifi_connect(ssid, password=None, hidden=False):
         base += ["hidden", "yes"]
     if not password:
         rc, out = command(base, timeout=35)
-        return {"ok": rc == 0, "message": "Connected to " + ssid if rc == 0 else "Could not connect. Check the network and try again."}
+        detail = " ".join(out.split())[:58]
+        return {"ok": rc == 0, "message": "Joined " + ssid + ". Checking access…" if rc == 0
+                else "Wi-Fi join failed: " + (detail or "check signal and try again")}
 
     # --ask reads the key from a pseudo-terminal; the secret never appears in
     # process arguments, shell history, the screen, or application logs.
@@ -445,6 +476,7 @@ class SettingsApp:
         self.status_until = 0
         self.wifi_aps = []
         self.wifi_scanning = False
+        self.wifi_connectivity = "unknown"
         self.wifi_ssid = ""
         self.wifi_hidden = False
         self.wifi_password = ""
@@ -494,9 +526,17 @@ class SettingsApp:
         if error:
             self.say("That action failed. Check the device and try again")
             return
-        if self.page == "wifi" and isinstance(result, dict) and "aps" in result:
+        if self.page == "wifi" and isinstance(result, dict) and "portal_browser" in result:
+            self.say(result["message"], 20)
+        elif self.page == "wifi" and isinstance(result, dict) and "aps" in result:
             self.wifi_aps = result["aps"]
-            self.say("Found %d networks" % len(self.wifi_aps))
+            self.wifi_connectivity = result.get("connectivity", "unknown")
+            if self.wifi_connectivity == "portal":
+                self.say("Wi-Fi joined. Sign-in is required.", 20)
+            elif self.wifi_connectivity == "full":
+                self.say("Internet is ready. Found %d networks" % len(self.wifi_aps))
+            else:
+                self.say("Found %d networks" % len(self.wifi_aps))
         elif self.page == "wifi" and isinstance(result, dict) and "radio" in result:
             self.wifi_radio = result["radio"] == "on"
             self.say(result["message"])
@@ -627,6 +667,12 @@ class SettingsApp:
         rows = [("Wi-Fi radio", "On" if self.wifi_radio else "Off"),
                 ("Scan again", "Nearby networks"),
                 ("Join hidden network…", "Type its name")]
+        connectivity = {"full": "Internet ready", "portal": "Sign-in required",
+                        "limited": "Joined · no internet", "none": "Not connected",
+                        "unknown": "Checking access"}.get(self.wifi_connectivity, "Checking access")
+        rows.append(("Network access", connectivity))
+        if self.wifi_connectivity == "portal":
+            rows.append(("Open Wi-Fi sign-in", "Accept network terms"))
         for ap in self.wifi_aps:
             security = "Open" if not ap["security"] else ap["security"]
             state = "Connected · " if ap["connected"] else ("Saved · " if ap["known"] else "")
@@ -864,8 +910,13 @@ class SettingsApp:
             self.start(wifi_scan)
         elif self.row == 2:
             self.begin_wifi_entry("", hidden=True)
+        elif self.wifi_connectivity == "portal" and self.row == 4:
+            self.start(launch_wifi_portal)
         else:
-            ap = self.wifi_aps[self.row - 3]
+            ap_offset = 5 if self.wifi_connectivity == "portal" else 4
+            if self.row < ap_offset:
+                return
+            ap = self.wifi_aps[self.row - ap_offset]
             self.wifi_ssid = ap["ssid"]
             self.wifi_hidden = False
             if ap["connected"]:
@@ -992,7 +1043,7 @@ class SettingsApp:
 
     def row_count(self):
         if self.page == "wifi":
-            return 3 + len(self.wifi_aps)
+            return 4 + int(self.wifi_connectivity == "portal") + len(self.wifi_aps)
         if self.page == "bluetooth":
             return 4 + len(self.bt_devices)
         if self.page == "audio":

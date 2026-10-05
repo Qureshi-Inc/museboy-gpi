@@ -21,7 +21,7 @@ apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   bluez curl ca-certificates git sudo network-manager python3 python3-evdev python3-pygame \
   python3-requests python3-pil python3-numpy xinit xserver-xorg \
-  x11-xserver-utils xdotool pulseaudio pulseaudio-utils alsa-utils \
+  x11-xserver-utils xdotool pulseaudio pulseaudio-utils alsa-utils chromium \
   v4l-utils
 
 getent group tendo >/dev/null || groupadd --system tendo
@@ -81,6 +81,10 @@ MODEL_ALIAS=gemma-3-1b-it-Q4_K_M
 EOF
   chmod 0644 /etc/gpi/local-ai/model.env
 fi
+
+install -d -m 0755 /etc/NetworkManager/conf.d
+install -m 0644 "$ROOT/config/20-gpi-connectivity.conf" \
+  /etc/NetworkManager/conf.d/20-gpi-connectivity.conf
 if ! id gpi-ai >/dev/null 2>&1; then
   useradd --system --home-dir /nonexistent --shell /usr/sbin/nologin gpi-ai
 fi
@@ -139,6 +143,7 @@ if ! command -v musegadget >/dev/null 2>&1; then
   trap - EXIT
 fi
 systemctl enable --now NetworkManager.service
+nmcli general reload conf || true
 
 if [[ "$ENABLE_TAILSCALE" == 1 ]]; then
   curl -fsSL https://tailscale.com/install.sh | sh
