@@ -1,6 +1,7 @@
 name = "museboy-app-mart"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
+workers_dev = true
 
 [assets]
 directory = "./public"
@@ -15,6 +16,10 @@ migrations_dir = "migrations"
 [[r2_buckets]]
 binding = "BUCKET"
 bucket_name = "museboy-app-mart"
+
+[[routes]]
+pattern = "museboy.interestingsoup.com"
+custom_domain = true
 
 [vars]
 MAX_APP_BUNDLE_BYTES = "10485760"

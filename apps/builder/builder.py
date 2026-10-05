@@ -10,6 +10,7 @@ import array
 import json
 import math
 import os
+import re
 import signal
 import shutil
 import subprocess
@@ -46,6 +47,7 @@ REQ_DIR = "/var/lib/gpi-builder/requests"
 BUILD_DIR = "/var/lib/gpi-builder/builds"
 TMP_DIR = "/var/lib/gpi-builder/.tmp"
 APPS_DIR = "/opt/gpi/apps"
+APP_MART_RUNNER = "/opt/gpi/apps/appmart/run.sh"
 MAX_REC = 60
 LOCAL_PLAN = "/opt/gpi/apps/builder/local_plan.py"
 MUSEGADGET_BIN = "/usr/local/bin/musegadget"
@@ -515,7 +517,10 @@ class BuilderApp:
             s.blit(t, t.get_rect(center=(r.centerx, r.y + 36)))
             t = self.f_small.render("is ready on your home screen", True, DIM)
             s.blit(t, t.get_rect(center=(r.centerx, r.y + 72)))
-            self.footer_hints([("Select", "home"), ("A", "build another")])
+            hints = [("Select", "home"), ("A", "build another")]
+            if self.app_ready_to_share():
+                hints.append(("X", "share to App Mart"))
+            self.footer_hints(hints)
 
         elif st == "ERROR":
             self.bolt.draw(s, 150, 250, "sad", 0.95)
@@ -1166,6 +1171,32 @@ class BuilderApp:
                     pass
         return apps
 
+    def app_ready_to_share(self):
+        """Find the app installed by this completed job for an App Mart handoff."""
+        if self.edit_target:
+            manifest = os.path.join(APPS_DIR, self.edit_target, "app.json")
+            if os.path.isfile(manifest):
+                return self.edit_target
+        plan_id = self.current_plan.get("app_id") if isinstance(self.current_plan, dict) else None
+        for app_id in (self.status.get("app_id"), plan_id):
+            if (isinstance(app_id, str) and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?", app_id)
+                    and app_id not in {"appmart", "builder", "settings"}
+                    and os.path.isfile(os.path.join(APPS_DIR, app_id, "app.json"))):
+                return app_id
+        wanted = str(self.status.get("app_name", "")).strip().casefold()
+        if wanted:
+            for entry in os.listdir(APPS_DIR):
+                if entry in {"appmart", "builder", "settings"} or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?", entry):
+                    continue
+                try:
+                    with open(os.path.join(APPS_DIR, entry, "app.json"), encoding="utf-8") as f:
+                        manifest = json.load(f)
+                    if str(manifest.get("name", "")).strip().casefold() == wanted:
+                        return manifest.get("id", entry)
+                except (OSError, ValueError, AttributeError):
+                    continue
+        return None
+
     def run(self):
         import pygame as pg
         clock = pg.time.Clock()
@@ -1264,6 +1295,11 @@ class BuilderApp:
                         self.start_recording(self.edit_target)
                         if self.state == "REC":
                             shutil.rmtree(os.path.join(TMP_DIR, previous_id), ignore_errors=True)
+                    elif k == pg.K_TAB and self.state == "DONE":
+                        app_id = self.app_ready_to_share()
+                        if app_id and os.path.isfile(APP_MART_RUNNER):
+                            os.execv(APP_MART_RUNNER,
+                                     [APP_MART_RUNNER, "--share-app-id", app_id])
                     elif k == pg.K_ESCAPE:
                         if self.local_failure:
                             self.cancel_build()

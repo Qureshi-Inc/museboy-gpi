@@ -50,10 +50,10 @@ def load_shop_config():
             break
         except (OSError, ValueError, AttributeError):
             pass
-    return "https://museboy-app-mart.rodeomasjid.workers.dev", token
+    return "https://museboy.interestingsoup.com", token
 
 
-# Each owner can connect their own catalog at setup time without editing the app.
+# All installs use the shared marketplace; only contributor credentials are device-specific.
 SHOP_URL, SUBMIT_TOKEN = load_shop_config()
 
 # Warm shop palette
@@ -323,10 +323,14 @@ def submit_app(app):
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("app.json", json.dumps(manifest, ensure_ascii=False))
             for root, dirs, files in os.walk(app_dir, followlinks=False):
-                dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+                dirs[:] = [d for d in dirs if d not in {".git", ".venv", "__pycache__", "node_modules", ".cache"}
+                           and not os.path.islink(os.path.join(root, d))]
                 for filename in files:
                     full = os.path.join(root, filename)
-                    if os.path.islink(full) or filename.endswith((".pyc", ".pyo")):
+                    lowname = filename.lower()
+                    if (os.path.islink(full) or filename.endswith((".pyc", ".pyo")) or
+                            lowname in {".env", "id_rsa", "id_ed25519", "credentials.json"} or
+                            lowname.endswith((".pem", ".key", ".p12", ".pfx"))):
                         continue
                     arcname = os.path.relpath(full, app_dir).replace(os.sep, "/")
                     if arcname == "app.json":
@@ -365,7 +369,7 @@ def submit_app(app):
 
 
 class Appmart:
-    def __init__(self):
+    def __init__(self, share_app_id=None):
         pygame.init()
         pygame.mouse.set_visible(False)
         pygame.display.set_caption("Appmart")
@@ -401,6 +405,11 @@ class Appmart:
         self.share_sel = 0
         self.share_thread = None
         self.share_result = ""
+        if share_app_id:
+            self.share_apps = installed_apps()
+            self.share_sel = next((i for i, app in enumerate(self.share_apps)
+                                   if app.get("id") == share_app_id), 0)
+            self.state = "MY_APPS"
 
     def refresh_shelf(self):
         shelf = fetch_shelf(self.search_query, self.categories[self.category_index])
@@ -809,4 +818,7 @@ class Appmart:
 
 
 if __name__ == "__main__":
-    Appmart().run()
+    share_app_id = None
+    if len(sys.argv) == 3 and sys.argv[1] == "--share-app-id":
+        share_app_id = sys.argv[2]
+    Appmart(share_app_id).run()

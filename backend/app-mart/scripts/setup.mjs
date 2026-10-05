@@ -11,6 +11,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const tomlPath = path.join(root, "wrangler.toml");
 const credentialPath = path.join(root, ".app-mart-credentials.json");
 const deviceConfigPath = path.join(root, "device-config.json");
+const publicUrl = "https://museboy.interestingsoup.com";
 const args = process.argv.slice(2);
 const deviceIndex = args.indexOf("--device");
 const device = deviceIndex >= 0 ? args[deviceIndex + 1] : "";
@@ -146,8 +147,9 @@ async function main() {
   console.log("Deploying public catalog and private review API…");
   const deploy = run("npx", ["wrangler", "deploy"], { capture: true });
   process.stdout.write(deploy);
-  const url = deploy.match(/https:\/\/[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev/i)?.[0];
-  if (!url) throw new Error("Deployment completed, but Wrangler’s workers.dev URL could not be detected. Copy the workers.dev URL from the output above into device-config.json as api_url.");
+  const url = publicUrl;
+  const health = await fetch(`${url}/api/health`, { headers: { "user-agent": "MuseBoy-AppMart-setup/1.0" } });
+  if (!health.ok) throw new Error(`Deployment completed, but ${url} returned HTTP ${health.status}`);
 
   const config = { api_url: url, submit_token: credentials.submitToken };
   await writeFile(deviceConfigPath, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
@@ -155,7 +157,7 @@ async function main() {
   try { await queueDemo(url, credentials); }
   catch (error) { console.warn(`\nThe backend is live, but the demo app could not be queued: ${error.message}`); }
   console.log(`\nApp Mart is live: ${url}`);
-  console.log(`Review dashboard: ${url}/`);
+  console.log(`Review dashboard: ${url}/review.html`);
   console.log("Admin token: saved locally in .app-mart-credentials.json; never publish or send it.");
   console.log("\nStep 3 — connect the GPi from this computer:");
   if (device) {

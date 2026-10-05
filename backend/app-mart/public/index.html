@@ -3,114 +3,130 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MuseBoy App Mart · Review desk</title>
+  <meta name="theme-color" content="#101216">
+  <title>MuseBoy Mart — tiny apps, big imagination</title>
   <style>
-    :root { color-scheme: dark; --bg:#101522; --panel:#1a2334; --line:#34445f; --gold:#ffb743; --muted:#a8b4c9; --green:#78dfa8; }
+    :root { color-scheme:dark; --bg:#101216; --panel:#191c22; --line:#343943; --cream:#f5efdf; --muted:#a3a7b1; --gold:#ffc247; --aqua:#78e4d2; }
     * { box-sizing:border-box; }
-    body { margin:0; background:radial-gradient(ellipse at 25% 0%,#293149,var(--bg) 55%); color:#f7f2e8; font:16px/1.5 system-ui,sans-serif; }
-    main { max-width:940px; margin:0 auto; padding:36px 20px 72px; }
-    h1 { margin:0; color:var(--gold); letter-spacing:.02em; font-size:clamp(28px,5vw,42px); }
-    .lede { color:var(--muted); margin:5px 0 26px; }
-    .auth,.card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:20px; }
-    .auth { display:flex; gap:10px; align-items:center; margin-bottom:18px; }
-    input { min-width:0; flex:1; background:#101522; border:1px solid var(--line); border-radius:9px; padding:12px; color:white; }
-    button { border:0; border-radius:9px; padding:11px 16px; color:#20190d; background:var(--gold); font-weight:700; cursor:pointer; }
-    button.secondary { background:#34445f; color:white; }
-    button.reject { background:#62404a; color:#fff; }
-    button:disabled { opacity:.45; cursor:wait; }
-    #status { color:var(--muted); min-height:24px; margin:12px 2px; }
-    .card { margin:14px 0; }
-    .top { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
-    h2 { margin:0 0 2px; font-size:22px; }
-    .slug,.meta,.hash { color:var(--muted); font-size:13px; overflow-wrap:anywhere; }
-    .desc { margin:14px 0; }
-    .actions { display:flex; flex-wrap:wrap; gap:9px; }
-    .empty { border:1px dashed var(--line); border-radius:14px; padding:28px; color:var(--muted); text-align:center; }
-    @media(max-width:580px) { .auth { align-items:stretch; flex-direction:column; } .top { flex-direction:column; } }
+    body { margin:0; min-height:100vh; color:var(--cream); background:radial-gradient(ellipse at 82% -10%,#383020 0,transparent 42%),radial-gradient(ellipse at 8% 25%,#162d32 0,transparent 35%),var(--bg); font:16px/1.5 ui-rounded,system-ui,-apple-system,sans-serif; }
+    a { color:inherit; }
+    main { width:min(1080px,100%); margin:auto; padding:26px 22px 64px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    .brand { display:flex; align-items:center; gap:12px; font-weight:850; font-size:19px; letter-spacing:.02em; }
+    .mark { width:36px; height:36px; display:grid; place-items:center; border-radius:12px; background:var(--gold); color:#20190e; font-size:22px; transform:rotate(-5deg); }
+    .tag { color:var(--aqua); font-size:12px; text-transform:uppercase; letter-spacing:.16em; }
+    .hero { padding:70px 0 44px; max-width:760px; }
+    .eyebrow { color:var(--aqua); text-transform:uppercase; letter-spacing:.2em; font-size:12px; font-weight:800; }
+    h1 { margin:12px 0 10px; font-size:clamp(42px,8vw,82px); line-height:.98; letter-spacing:-.055em; }
+    h1 span { color:var(--gold); }
+    .hero p { margin:0; color:#c0c2c8; font-size:18px; max-width:590px; }
+    .toolbar { display:grid; grid-template-columns:minmax(200px,1fr) auto; gap:16px; align-items:center; border-top:1px solid #ffffff1a; padding:24px 0 17px; }
+    .search { position:relative; }
+    .search input { width:100%; border:1px solid var(--line); border-radius:13px; background:#171a20; padding:14px 16px 14px 45px; color:var(--cream); font:inherit; outline:none; }
+    .search input:focus { border-color:var(--aqua); box-shadow:0 0 0 3px #78e4d21e; }
+    .search:before { content:'⌕'; position:absolute; left:16px; top:7px; font-size:25px; color:var(--muted); }
+    #count { color:var(--muted); font-size:13px; text-align:right; }
+    #categories { display:flex; gap:8px; flex-wrap:wrap; padding:0 0 24px; }
+    .chip { border:1px solid var(--line); border-radius:999px; padding:7px 13px; background:transparent; color:#c7c8cc; font:inherit; font-size:13px; cursor:pointer; }
+    .chip:hover { border-color:var(--aqua); }
+    .chip[aria-pressed="true"] { background:var(--gold); border-color:var(--gold); color:#211a10; font-weight:800; }
+    #status { color:var(--muted); padding:12px 2px 22px; min-height:48px; }
+    #apps { display:grid; grid-template-columns:repeat(auto-fill,minmax(245px,1fr)); gap:15px; }
+    .card { min-width:0; border:1px solid var(--line); border-radius:18px; background:linear-gradient(145deg,#20242b,#17191e); padding:18px; box-shadow:0 12px 30px #0002; display:flex; flex-direction:column; }
+    .app-top { display:flex; gap:13px; align-items:center; }
+    .icon { width:58px; height:58px; border-radius:15px; background:#272a31; object-fit:cover; flex:0 0 58px; }
+    h2 { margin:0; font-size:19px; line-height:1.2; }
+    .byline { color:var(--muted); font-size:12px; margin-top:4px; }
+    .desc { color:#c1c3c9; font-size:14px; min-height:63px; margin:16px 0 12px; }
+    .meta { display:flex; justify-content:space-between; gap:8px; color:var(--muted); font-size:12px; margin-top:auto; padding:10px 0 14px; }
+    .category { color:var(--aqua); }
+    .download { display:flex; justify-content:center; align-items:center; text-decoration:none; border-radius:11px; background:var(--gold); color:#211a10; padding:11px 14px; font-weight:850; font-size:14px; }
+    .download:hover { background:#ffda81; transform:translateY(-1px); }
+    .empty { border:1px dashed var(--line); border-radius:16px; padding:34px; color:var(--muted); text-align:center; grid-column:1/-1; }
+    footer { border-top:1px solid #ffffff1a; margin-top:45px; padding-top:18px; display:flex; justify-content:space-between; gap:14px; color:var(--muted); font-size:12px; }
+    footer a { text-decoration:none; }
+    footer a:hover { color:var(--gold); }
+    @media(max-width:600px) { main{padding:18px 15px 44px}.hero{padding:54px 0 32px}.toolbar{grid-template-columns:1fr;gap:8px}#count{text-align:left}footer{flex-direction:column} }
   </style>
 </head>
 <body>
 <main>
-  <h1>MuseBoy App Mart</h1>
-  <p class="lede">Review submitted GPi apps before they join the public shelf.</p>
-  <section class="auth" aria-label="Reviewer sign in">
-    <input id="token" type="password" autocomplete="off" placeholder="Private reviewer token" aria-label="Private reviewer token">
-    <button id="load">Load review queue</button>
-  </section>
-  <div id="status" role="status"></div>
-  <section id="queue" aria-live="polite"></section>
+  <header><div class="brand"><span class="mark" aria-hidden="true">✦</span> MUSEBOY MART</div><div class="tag">Made for the little screen</div></header>
+  <section class="hero"><div class="eyebrow">A pocket-sized arcade for ideas</div><h1>Small screen.<br><span>Wild worlds.</span></h1><p>Discover tiny games and useful oddities made by the MuseBoy community. Pick one, download it, and slot it into your GPi.</p></section>
+  <section class="toolbar" aria-label="Find apps"><label class="search"><input id="query" type="search" placeholder="Search apps, creators, ideas…" autocomplete="off" aria-label="Search apps"></label><div id="count" aria-live="polite"></div></section>
+  <nav id="categories" aria-label="App categories"></nav>
+  <div id="status" role="status">Loading the shelf…</div>
+  <section id="apps" aria-live="polite"></section>
+  <footer><span>Community-made apps · Reviewed before publishing</span><a href="/review.html">Reviewer desk</a></footer>
 </main>
 <script>
-  const token = document.querySelector('#token');
+  const query = document.querySelector('#query');
+  const categories = document.querySelector('#categories');
+  const apps = document.querySelector('#apps');
   const status = document.querySelector('#status');
-  const queue = document.querySelector('#queue');
-  const headers = () => ({ authorization: `Bearer ${token.value}` });
-  const setStatus = text => { status.textContent = text; };
-  async function api(path, options = {}) {
-    const response = await fetch(path, { ...options, headers: { ...headers(), ...(options.headers || {}) } });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
-    return body;
+  const count = document.querySelector('#count');
+  let selectedCategory = 'all';
+  let searchTimer;
+  const api = async path => {
+    const response = await fetch(path, { headers: { 'accept': 'application/json' } });
+    if (!response.ok) throw new Error(`The shelf could not load (${response.status}).`);
+    return response.json();
+  };
+  function makeChip(label, value) {
+    const button = document.createElement('button');
+    button.className = 'chip'; button.type = 'button'; button.textContent = label;
+    button.setAttribute('aria-pressed', String(value === selectedCategory));
+    button.addEventListener('click', () => { selectedCategory = value; updateChips(); loadApps(); });
+    return button;
   }
-  async function loadQueue() {
-    queue.replaceChildren();
-    setStatus('Loading review queue…');
+  function updateChips() {
+    for (const button of categories.children) button.setAttribute('aria-pressed', String(button.dataset.value === selectedCategory));
+  }
+  function makeCard(app) {
+    const card = document.createElement('article'); card.className = 'card';
+    const top = document.createElement('div'); top.className = 'app-top';
+    const icon = document.createElement('img'); icon.className = 'icon'; icon.alt = ''; icon.loading = 'lazy';
+    icon.src = `/api/apps/${encodeURIComponent(app.id)}/icon`;
+    const identity = document.createElement('div');
+    const name = document.createElement('h2'); name.textContent = app.name;
+    const author = document.createElement('div'); author.className = 'byline'; author.textContent = `by ${app.author}`;
+    identity.append(name, author); top.append(icon, identity);
+    const description = document.createElement('p'); description.className = 'desc'; description.textContent = app.description;
+    const meta = document.createElement('div'); meta.className = 'meta';
+    const category = document.createElement('span'); category.className = 'category'; category.textContent = app.category.replaceAll('-', ' ');
+    const downloads = document.createElement('span'); downloads.textContent = `${app.downloads} downloads · v${app.version}`;
+    meta.append(category, downloads);
+    const link = document.createElement('a'); link.className = 'download'; link.textContent = 'Download for MuseBoy'; link.href = `/api/apps/${encodeURIComponent(app.id)}/download`; link.download = `${app.id}.zip`;
+    card.append(top, description, meta, link); return card;
+  }
+  async function loadApps() {
+    status.textContent = 'Looking through the shelf…'; apps.replaceChildren();
+    const params = new URLSearchParams();
+    if (query.value.trim()) params.set('q', query.value.trim());
+    if (selectedCategory !== 'all') params.set('category', selectedCategory);
     try {
-      const items = await api('/api/admin/submissions');
+      const items = await api(`/api/apps?${params}`);
+      count.textContent = `${items.length} app${items.length === 1 ? '' : 's'}`;
       if (!items.length) {
         const empty = document.createElement('div'); empty.className = 'empty';
-        empty.textContent = 'Nothing waiting for review.'; queue.append(empty);
-      }
-      for (const item of items) queue.append(makeCard(item));
-      setStatus(`${items.length} submission${items.length === 1 ? '' : 's'} awaiting review.`);
-    } catch (error) { setStatus(error.message); }
+        empty.textContent = 'No apps here yet. Try another search or category.'; apps.append(empty);
+      } else for (const app of items) apps.append(makeCard(app));
+      status.textContent = '';
+    } catch (error) { status.textContent = error.message; count.textContent = ''; }
   }
-  function makeCard(item) {
-    const card = document.createElement('article'); card.className = 'card';
-    const top = document.createElement('div'); top.className = 'top';
-    const identity = document.createElement('div');
-    const title = document.createElement('h2'); title.textContent = item.name;
-    const slug = document.createElement('div'); slug.className = 'slug';
-    slug.textContent = `${item.app_id} · ${item.category} · v${item.version}`;
-    identity.append(title, slug);
-    const meta = document.createElement('div'); meta.className = 'meta';
-    meta.textContent = `by ${item.author} · ${new Date(item.submitted_at).toLocaleString()}`;
-    top.append(identity, meta);
-    const description = document.createElement('p'); description.className = 'desc';
-    description.textContent = item.description;
-    const hash = document.createElement('div'); hash.className = 'hash';
-    hash.textContent = `SHA-256: ${item.sha256}`;
-    const actions = document.createElement('div'); actions.className = 'actions';
-    const download = document.createElement('button'); download.className = 'secondary';
-    download.textContent = 'Inspect ZIP';
-    download.onclick = async () => {
-      download.disabled = true;
-      try {
-        const response = await fetch(`/api/admin/submissions/${encodeURIComponent(item.id)}/download`, { headers: headers() });
-        if (!response.ok) throw new Error('Could not download package for review');
-        const url = URL.createObjectURL(await response.blob());
-        const link = document.createElement('a'); link.href = url; link.download = `${item.app_id}-review.zip`;
-        link.click(); URL.revokeObjectURL(url);
-      } catch (error) { setStatus(error.message); }
-      finally { download.disabled = false; }
-    };
-    const approve = document.createElement('button'); approve.textContent = 'Approve & publish';
-    approve.onclick = () => decide(item.id, 'approve');
-    const reject = document.createElement('button'); reject.className = 'reject'; reject.textContent = 'Reject';
-    reject.onclick = () => decide(item.id, 'reject');
-    actions.append(download, approve, reject);
-    card.append(top, description, hash, actions);
-    return card;
-  }
-  async function decide(id, action) {
-    setStatus(action === 'approve' ? 'Publishing approved app…' : 'Rejecting submission…');
+  async function loadCategories() {
     try {
-      await api(`/api/admin/submissions/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
-      await loadQueue();
-    } catch (error) { setStatus(error.message); }
+      const values = await api('/api/categories');
+      categories.replaceChildren();
+      const all = makeChip('Everything', 'all'); all.dataset.value = 'all'; categories.append(all);
+      for (const item of values) {
+        const chip = makeChip(item.category.replaceAll('-', ' '), item.category);
+        chip.dataset.value = item.category; categories.append(chip);
+      }
+    } catch { categories.replaceChildren(); }
   }
-  document.querySelector('#load').addEventListener('click', loadQueue);
-  token.addEventListener('keydown', event => { if (event.key === 'Enter') loadQueue(); });
+  query.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadApps, 220); });
+  (async () => { await loadCategories(); await loadApps(); })();
 </script>
 </body>
 </html>
