@@ -218,11 +218,17 @@ def _nmcli_fields(line):
 
 
 def wifi_scan():
+    radio_rc, radio = command(["nmcli", "radio", "wifi"], timeout=5)
+    if radio_rc != 0 or radio.strip() != "enabled":
+        return {"aps": [], "connectivity": "none",
+                "error": "Wi-Fi radio is off" if radio_rc == 0 else
+                (" ".join(radio.split())[:100] or "Could not read Wi-Fi radio state")}
     rc, out = command(["nmcli", "-t", "-e", "yes", "-f",
                        "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi",
                        "list", "--rescan", "yes"], timeout=18)
     if rc:
-        return {"error": out}
+        return {"aps": [], "connectivity": "unknown",
+                "error": " ".join(out.split())[:100] or "Wi-Fi scan failed"}
     saved = set()
     rc, profiles = command(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show"])
     if rc == 0:
@@ -257,6 +263,17 @@ def get_network_connectivity():
     rc, out = command(["nmcli", "networking", "connectivity", "check"], timeout=12)
     state = out.strip().lower()
     return state if rc == 0 and state in {"none", "portal", "limited", "full", "unknown"} else "unknown"
+
+
+def accept_direction_press(key, held):
+    """Ignore repeated KEYDOWN events until the physical direction is released."""
+    directions = {pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT}
+    if key not in directions:
+        return True
+    if key in held:
+        return False
+    held.add(key)
+    return True
 
 
 def launch_wifi_portal():
@@ -477,6 +494,7 @@ class SettingsApp:
         self.wifi_aps = []
         self.wifi_scanning = False
         self.wifi_connectivity = "unknown"
+        self.pending_wifi_radio = None
         self.wifi_ssid = ""
         self.wifi_hidden = False
         self.wifi_password = ""
@@ -523,6 +541,14 @@ class SettingsApp:
         result, error, done = self.worker.take()
         if not done:
             return
+        # A scan can take several seconds. Honor a radio-toggle press as soon
+        # as it exits instead of dropping the action because the worker is busy.
+        if self.pending_wifi_radio is not None:
+            state = self.pending_wifi_radio
+            self.pending_wifi_radio = None
+            self.say("Turning Wi-Fi " + state + "…", 12)
+            self.start(wifi_radio, state)
+            return
         if error:
             self.say("That action failed. Check the device and try again")
             return
@@ -531,17 +557,22 @@ class SettingsApp:
         elif self.page == "wifi" and isinstance(result, dict) and "aps" in result:
             self.wifi_aps = result["aps"]
             self.wifi_connectivity = result.get("connectivity", "unknown")
-            if self.wifi_connectivity == "portal":
+            if result.get("error"):
+                self.say(result["error"][:52], 12)
+            elif self.wifi_connectivity == "portal":
                 self.say("Wi-Fi joined. Sign-in is required.", 20)
             elif self.wifi_connectivity == "full":
                 self.say("Internet is ready. Found %d networks" % len(self.wifi_aps))
             else:
                 self.say("Found %d networks" % len(self.wifi_aps))
         elif self.page == "wifi" and isinstance(result, dict) and "radio" in result:
-            self.wifi_radio = result["radio"] == "on"
+            self.wifi_radio = result["radio"] in ("on", "enabled")
             self.say(result["message"])
             if self.wifi_radio:
                 self.start(wifi_scan)
+            else:
+                self.wifi_aps = []
+                self.wifi_connectivity = "none"
         elif self.page == "wifi" and isinstance(result, dict) and "ok" in result:
             self.say(result["message"], 8)
             if result["ok"]:
@@ -589,8 +620,14 @@ class SettingsApp:
         if page == "wifi":
             rc, out = command(["nmcli", "radio", "wifi"])
             self.wifi_radio = out.strip() == "enabled" and rc == 0
-            self.say("Scanning nearby networks…", 20)
-            self.start(wifi_scan)
+            if self.wifi_radio:
+                self.wifi_aps = []
+                self.say("Scanning nearby networks…", 20)
+                self.start(wifi_scan)
+            else:
+                self.wifi_aps = []
+                self.wifi_connectivity = "none"
+                self.say("Wi-Fi is off. Select the first row to turn it on.", 12)
         elif page == "bluetooth":
             self.bt_devices = []
             self.say("Loading saved devices…", 20)
@@ -906,6 +943,9 @@ class SettingsApp:
             self.say("Turning Wi-Fi " + state + "…")
             self.start(wifi_radio, state)
         elif self.row == 1:
+            if not self.wifi_radio:
+                self.say("Turn Wi-Fi on first", 8)
+                return
             self.say("Scanning nearby networks…", 20)
             self.start(wifi_scan)
         elif self.row == 2:
@@ -1089,12 +1129,19 @@ class SettingsApp:
 
     def run(self):
         clock = pygame.time.Clock()
+        held_directions = set()
         try:
             while self.page != "exit":
                 for ev in pygame.event.get():
                     if ev.type == pygame.QUIT:
                         return
+                    if ev.type == pygame.KEYUP:
+                        held_directions.discard(ev.key)
                     if ev.type == pygame.KEYDOWN:
+                        # SDL can repeat KEYDOWN while a gamepad axis is held.
+                        # Treat one physical press as one cursor step.
+                        if not accept_direction_press(ev.key, held_directions):
+                            continue
                         self.handle_key(ev.key)
                 self.draw()
                 clock.tick(30)
@@ -1104,8 +1151,12 @@ class SettingsApp:
 
 def wifi_radio(state):
     rc, out = command(["nmcli", "radio", "wifi", state], timeout=8)
-    return {"ok": rc == 0, "radio": state if rc == 0 else "off",
-            "message": "Wi-Fi " + state if rc == 0 else "Could not change Wi-Fi state"}
+    state_rc, current = command(["nmcli", "radio", "wifi"], timeout=5)
+    actual = current.strip() if state_rc == 0 else "unknown"
+    detail = " ".join(out.split())[:70]
+    return {"ok": rc == 0, "radio": actual,
+            "message": "Wi-Fi " + state if rc == 0 else
+            "Could not turn Wi-Fi " + state + (": " + detail if detail else "")}
 
 
 def system_snapshot():

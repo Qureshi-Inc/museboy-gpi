@@ -53,6 +53,14 @@ class MicMeterTests(unittest.TestCase):
         self.assertEqual(app.edit["cursor"], [6, 4])
         self.assertEqual(app._keyrow(4)[app.edit["cursor"][0]], "CANCEL")
 
+    def test_held_direction_repeats_only_move_once_until_release(self):
+        held = set()
+        right = pygame_stub.K_RIGHT
+        self.assertTrue(settings_module.accept_direction_press(right, held))
+        self.assertFalse(settings_module.accept_direction_press(right, held))
+        held.discard(right)  # KEYUP
+        self.assertTrue(settings_module.accept_direction_press(right, held))
+
     def test_open_wifi_join_error_includes_nmcli_reason(self):
         with patch.object(settings_module, "command",
                           return_value=(10, "Error: Activation failed: no access point")):
@@ -62,6 +70,8 @@ class MicMeterTests(unittest.TestCase):
 
     def test_wifi_scan_reports_captive_portal_state(self):
         def fake_command(args, timeout=8, input_text=None):
+            if args == ["nmcli", "radio", "wifi"]:
+                return 0, "enabled"
             if args[1:4] == ["-t", "-e", "yes"]:
                 return 0, "*:Guest WiFi:90:"
             if args[1:4] == ["-t", "-f", "NAME,TYPE"]:
@@ -75,6 +85,37 @@ class MicMeterTests(unittest.TestCase):
         self.assertEqual(result["connectivity"], "portal")
         self.assertEqual(result["aps"][0]["ssid"], "Guest WiFi")
         self.assertFalse(result["aps"][0]["security"])
+
+    def test_wifi_scan_skips_scan_when_radio_is_off(self):
+        calls = []
+        def fake_command(args, timeout=8, input_text=None):
+            calls.append(args)
+            return 0, "disabled"
+
+        with patch.object(settings_module, "command", side_effect=fake_command):
+            result = settings_module.wifi_scan()
+        self.assertEqual(result["aps"], [])
+        self.assertIn("off", result["error"])
+        self.assertEqual(calls, [["nmcli", "radio", "wifi"]])
+
+    def test_wifi_radio_reports_actual_enabled_state_and_nmcli_error(self):
+        with patch.object(settings_module, "command", side_effect=[
+                (1, "Error: not authorized"), (0, "enabled")]):
+            result = settings_module.wifi_radio("off")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["radio"], "enabled")
+        self.assertIn("not authorized", result["message"])
+
+    def test_wifi_toggle_waits_for_scan_then_runs(self):
+        app = object.__new__(settings_module.SettingsApp)
+        app.pending_wifi_radio = "off"
+        app.worker = types.SimpleNamespace(take=lambda: ({"aps": []}, None, True))
+        app.started = []
+        app.start = lambda fn, *args: app.started.append((fn, args)) or True
+        app.say = lambda *args: None
+        app.poll_worker()
+        self.assertEqual(app.started, [(settings_module.wifi_radio, ("off",))])
+        self.assertIsNone(app.pending_wifi_radio)
 
     def test_portal_row_launches_browser_action(self):
         app = object.__new__(settings_module.SettingsApp)
