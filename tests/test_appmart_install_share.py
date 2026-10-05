@@ -5,10 +5,22 @@ import sys
 import tempfile
 import types
 import unittest
+import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
 pygame_stub = sys.modules.setdefault("pygame", types.ModuleType("pygame"))
+
+
+class FakeIconSurface:
+    def get_size(self):
+        return (64, 64)
+
+
+pygame_stub.image = types.SimpleNamespace(
+    load=lambda path: FakeIconSurface(),
+    save=lambda surface, path: Path(path).write_bytes(b"\x89PNG\r\n\x1a\nnormalized icon"))
+pygame_stub.transform = types.SimpleNamespace(smoothscale=lambda surface, size: surface)
 gpi_ui_stub = sys.modules.setdefault("gpi_ui", types.ModuleType("gpi_ui"))
 for name, value in {"W": 640, "H": 480, "BLACK": (0, 0, 0), "WHITE": (255, 255, 255),
                     "DIM": (100, 100, 100), "DARK": (20, 20, 20)}.items():
@@ -39,7 +51,8 @@ class AppMartInstallShareTests(unittest.TestCase):
                     "exec": "run.sh"}
         (folder / "app.json").write_text(json.dumps(manifest), encoding="utf-8")
         (folder / "run.sh").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-        (folder / "icon.png").write_bytes(b"fake png")
+        # It has an image extension but deliberately does not contain PNG bytes.
+        (folder / "icon.png").write_bytes(b"fake image bytes mislabeled as PNG")
         manifest["_path"] = str(folder)
         return manifest
 
@@ -66,6 +79,9 @@ class AppMartInstallShareTests(unittest.TestCase):
 
         def fake_post(url, **kwargs):
             captured["manifest"] = json.loads(kwargs["files"]["manifest"][1])
+            captured["icon"] = kwargs["files"]["icon"][1].read()
+            with zipfile.ZipFile(kwargs["files"]["bundle"][1]) as bundle:
+                captured["bundle_icon"] = bundle.read("icon.png")
             return Response()
 
         requests_stub.post = fake_post
@@ -74,6 +90,8 @@ class AppMartInstallShareTests(unittest.TestCase):
         self.assertEqual(captured["manifest"]["author"], "Moiz Qureshi")
         self.assertEqual(captured["manifest"]["description"], "Muse wrote this")
         self.assertEqual(captured["manifest"]["category"], "tools")
+        self.assertTrue(captured["icon"].startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertTrue(captured["bundle_icon"].startswith(b"\x89PNG\r\n\x1a\n"))
 
 
 if __name__ == "__main__":

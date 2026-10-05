@@ -360,6 +360,29 @@ def submit_app(app, author=""):
         raise ValueError("App launch file is missing or outside its app folder")
     temp_dir = tempfile.mkdtemp(prefix="appmart-share-")
     try:
+        # Muse-built apps sometimes carry a JPEG or another image mislabeled
+        # icon.png. Decode and re-encode the icon so both the bundle and the
+        # marketplace upload contain a real PNG.
+        icon_path = os.path.join(temp_dir, "icon.png")
+        source_icon = os.path.join(app_dir, "icon.png")
+        try:
+            if not os.path.isfile(source_icon) or os.path.getsize(source_icon) > 20 * 1024 * 1024:
+                raise ValueError("missing or oversized icon")
+            icon_surface = pygame.image.load(source_icon)
+            width, height = icon_surface.get_size()
+            if width <= 0 or height <= 0:
+                raise ValueError("empty icon")
+            if max(width, height) > 512:
+                scale = 512 / max(width, height)
+                size = (max(1, int(width * scale)), max(1, int(height * scale)))
+                icon_surface = pygame.transform.smoothscale(icon_surface, size)
+        except Exception:
+            icon_surface = procedural_icon(app.get("name", "?"), 128)
+        pygame.image.save(icon_surface, icon_path)
+        with open(icon_path, "rb") as icon_file:
+            if icon_file.read(8) != b"\x89PNG\r\n\x1a\n":
+                raise ValueError("Could not create a valid PNG icon")
+
         zip_path = os.path.join(temp_dir, "app.zip")
         total = 0
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -375,16 +398,13 @@ def submit_app(app, author=""):
                             lowname.endswith((".pem", ".key", ".p12", ".pfx"))):
                         continue
                     arcname = os.path.relpath(full, app_dir).replace(os.sep, "/")
-                    if arcname == "app.json":
+                    if arcname in ("app.json", "icon.png"):
                         continue
                     total += os.path.getsize(full)
                     if total > 9 * 1024 * 1024:
                         raise ValueError("App files exceed the 9 MB sharing limit")
                     archive.write(full, arcname)
-        icon_path = os.path.join(app_dir, "icon.png")
-        if not os.path.isfile(icon_path):
-            icon_path = os.path.join(temp_dir, "icon.png")
-            pygame.image.save(procedural_icon(app.get("name", "?"), 128), icon_path)
+            archive.write(icon_path, "icon.png")
         files = {
             "manifest": (None, json.dumps(manifest, ensure_ascii=False), "application/json"),
             "bundle": (f"{manifest['id']}.zip", open(zip_path, "rb"), "application/zip"),
