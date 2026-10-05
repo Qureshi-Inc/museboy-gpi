@@ -1,6 +1,33 @@
 # MuseBoy for the RetroFlag GPi Case 2
 
-MuseBoy is a four-app handheld interface for the CM4: **MuseBoy Home**, **App Mart**, **App Builder**, and **Settings**. The launcher is a controller-first app grid; App Builder turns a spoken idea into a complete reviewable build contract locally, then hands Muse only the approved text plan.
+<div align="center">
+  <img src="docs/images/museboy-hero.jpg" alt="A retro handheld showing MuseBoy's tiny explorer in a moonlit pixel world" width="100%">
+  <br>
+  <strong>A pocket-sized Muse gadget with local voice tools and a controller-first app hub.</strong>
+  <br><br>
+  <img alt="Raspberry Pi CM4" src="https://img.shields.io/badge/Raspberry_Pi-CM4-c51a4a?logo=raspberrypi&logoColor=white">
+  <img alt="Display" src="https://img.shields.io/badge/display-640×480-26324a">
+  <img alt="Muse" src="https://img.shields.io/badge/cloud-Muse-7857c5">
+  <img alt="Local AI" src="https://img.shields.io/badge/voice%20and%20planning-local-168f84">
+</div>
+
+MuseBoy brings **Home**, **App Mart**, **App Builder**, and **Settings** to the GPi Case 2. Whisper transcribes voice locally, Gemma drafts the app plan locally, and Muse receives only the text plan after you approve it.
+
+## Screenshots
+
+These 640×480 previews are rendered from the project's Pygame screens. They are not photographs or captures from a connected GPi. App Mart is shown in its offline demo mode, and App Builder shows a sample plan.
+
+| MuseBoy Home | App Builder |
+|:---:|:---:|
+| ![MuseBoy Home app grid](docs/images/home.png) | ![App Builder showing a scrollable plan](docs/images/app-builder.png) |
+
+| App Mart | Settings |
+|:---:|:---:|
+| ![App Mart offline demo shelf](docs/images/app-mart.png) | ![Settings with Wi-Fi, Bluetooth, audio, cameras, and Local AI](docs/images/settings.png) |
+
+| On-device model selection |
+|:---:|
+| ![Local AI settings showing the loaded Gemma model](docs/images/local-ai.png) |
 
 The intended target is a Raspberry Pi Compute Module 4 with eMMC, 8 GB RAM, the RetroFlag GPi Case 2, and Raspberry Pi OS 64-bit Bookworm or a compatible Debian 12 installation with X11. The build and local inference are tuned for the 8 GB CM4. Smaller RAM configurations are not supported by the default Gemma service profile.
 
@@ -36,7 +63,13 @@ Muse publishes progress only when it reaches a real milestone. Bolt displays the
 4. In MuseBoy, open **Settings → Bluetooth → Muse SDK token** and enter your own token from [gadgets.muse.ai/settings/sdk-tokens](https://gadgets.muse.ai/settings/sdk-tokens). This one-time SDK credential is separate from pairing. The Settings keyboard hides it while typing; the root-owned file is saved with mode `0600` at `/var/lib/musegadget/sdk_token` and is not logged or passed as a command-line argument.
 5. In **Settings → Bluetooth → Pair this GPi with Muse**, then in the Muse phone app turn on Developer Mode and select **Settings → Devices → Add Device**. Choose the nearby `MuseGadget…` device. The SDK opens BLE pairing for ten minutes. No Tailscale account or QR scan is required for ordinary Muse pairing.
 
-For remote shell administration only, install with `sudo ./scripts/install.sh --tailscale`. Tailscale is not installed or enabled by default; this option installs it and prints its sign-in QR code during setup.
+**Optional remote access:** Tailscale is off by default and is not needed to pair Muse. To add it during setup, run:
+
+```sh
+sudo ./scripts/install.sh --tailscale
+```
+
+That flag installs Tailscale and displays its sign-in QR code. Omitting the flag leaves Tailscale out of the installation.
 
 ## Using the four apps
 
