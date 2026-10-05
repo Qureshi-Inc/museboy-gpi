@@ -300,6 +300,30 @@ def installed_apps():
     return result
 
 
+def uninstall_app(app):
+    """Remove one validated user app from this device; never touch the shared catalog."""
+    app_id = app.get("id", "")
+    if not isinstance(app_id, str) or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?", app_id):
+        return False, "Remove failed: invalid app ID"
+    if app_id in {"appmart", "builder", "settings"}:
+        return False, "Core apps cannot be removed here."
+    root = os.path.realpath(APPS_DIR)
+    path = os.path.join(root, app_id)
+    if os.path.islink(path) or os.path.realpath(path) != path or os.path.dirname(path) != root:
+        return False, "Remove failed: unsafe app path"
+    try:
+        with open(os.path.join(path, "app.json"), encoding="utf-8") as f:
+            manifest = json.load(f)
+        if manifest.get("id") != app_id:
+            return False, "Remove failed: app manifest does not match"
+        shutil.rmtree(path)
+        return True, "Removed from this GPi. Its App Mart listing is unchanged."
+    except FileNotFoundError:
+        return False, "That app is already gone."
+    except Exception as exc:
+        return False, f"Remove failed: {exc}"
+
+
 def submit_app(app):
     """Package one installed app and submit it privately for marketplace review."""
     if not SHOP_URL or not SUBMIT_TOKEN:
@@ -405,6 +429,8 @@ class Appmart:
         self.share_sel = 0
         self.share_thread = None
         self.share_result = ""
+        self.remove_app = None
+        self.remove_result = ""
         if share_app_id:
             self.share_apps = installed_apps()
             self.share_sel = next((i for i, app in enumerate(self.share_apps)
@@ -561,7 +587,32 @@ class Appmart:
             label = self.f_small.render(app.get("name", app.get("id", "?"))[:28],
                                         True, BLACK if selected else CREAM)
             self.screen.blit(label, (rect.x + 12, rect.y + 7))
-        self.draw_footer([("A", "Share for review"), ("B", "Back"), ("Start", "Home")])
+        self.draw_footer([("A", "Share for review"), ("X", "Remove from GPi"), ("B", "Back"), ("Start", "Home")])
+
+    def draw_remove_confirm(self, t):
+        self.draw_bg(t)
+        self.draw_header()
+        app_name = (self.remove_app or {}).get("name", "this app")
+        self.draw_bolt(36, 120, "A tidy shelf is a happy shelf.")
+        title = self.f_name.render("Remove from this GPi?", True, CREAM)
+        self.screen.blit(title, title.get_rect(center=(420, 150)))
+        words, lines, cur = (f"Remove {app_name}? The App Mart listing will stay online.".split(), [], "")
+        for word in words:
+            candidate = cur + " " + word if cur else word
+            if self.f_small.size(candidate)[0] > 390:
+                lines.append(cur)
+                cur = word
+            else:
+                cur = candidate
+        if cur:
+            lines.append(cur)
+        for i, line in enumerate(lines):
+            txt = self.f_small.render(line, True, BRASS)
+            self.screen.blit(txt, txt.get_rect(center=(420, 205 + i * 24)))
+        if self.remove_result:
+            msg = self.f_small.render(self.remove_result[:55], True, CREAM)
+            self.screen.blit(msg, msg.get_rect(center=(420, 290)))
+        self.draw_footer([("A", "Remove app"), ("B", "Keep it")])
 
     def draw_sharing(self, t):
         self.draw_bg(t)
@@ -703,6 +754,8 @@ class Appmart:
                     if k in (pygame.K_ESCAPE,):
                         if self.state in ("DETAIL", "SEARCH", "MY_APPS"):
                             self.state = "SHELF"
+                        elif self.state == "REMOVE_CONFIRM":
+                            self.state = "MY_APPS"
                         elif self.state == "SHARING":
                             if not (self.share_thread and self.share_thread.is_alive()):
                                 self.state = "MY_APPS"
@@ -779,8 +832,27 @@ class Appmart:
                             self.share_thread = threading.Thread(target=upload, daemon=True)
                             self.share_thread.start()
                             self.state = "SHARING"
+                        elif k == pygame.K_TAB and self.share_apps:
+                            self.remove_app = self.share_apps[self.share_sel]
+                            self.remove_result = ""
+                            self.state = "REMOVE_CONFIRM"
                         elif k == pygame.K_ESCAPE:
                             self.state = "SHELF"
+                    elif self.state == "REMOVE_CONFIRM":
+                        if k in (pygame.K_RETURN, pygame.K_KP_ENTER) and self.remove_app:
+                            ok, message = uninstall_app(self.remove_app)
+                            self.remove_result = message
+                            if ok:
+                                removed_id = self.remove_app.get("id")
+                                self.share_apps = [app for app in installed_apps()
+                                                   if app.get("id") != removed_id]
+                                self.share_sel = min(self.share_sel,
+                                                     max(0, len(self.share_apps) - 1))
+                                self.remove_app = None
+                                self.state = "MY_APPS"
+                        elif k == pygame.K_ESCAPE:
+                            self.remove_app = None
+                            self.state = "MY_APPS"
                     elif self.state == "SHARING":
                         busy = self.share_thread is not None and self.share_thread.is_alive()
                         if not busy and k in (pygame.K_RETURN, pygame.K_KP_ENTER):
@@ -807,6 +879,8 @@ class Appmart:
                 self.draw_search(t)
             elif self.state == "MY_APPS":
                 self.draw_my_apps(t)
+            elif self.state == "REMOVE_CONFIRM":
+                self.draw_remove_confirm(t)
             elif self.state == "SHARING":
                 self.draw_sharing(t)
             elif self.state == "INSTALLING":
