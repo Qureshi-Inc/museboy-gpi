@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MuseBoy App Mart · Review desk</title>
+  <style>
+    :root { color-scheme: dark; --bg:#101522; --panel:#1a2334; --line:#34445f; --gold:#ffb743; --muted:#a8b4c9; --green:#78dfa8; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:radial-gradient(ellipse at 25% 0%,#293149,var(--bg) 55%); color:#f7f2e8; font:16px/1.5 system-ui,sans-serif; }
+    main { max-width:940px; margin:0 auto; padding:36px 20px 72px; }
+    h1 { margin:0; color:var(--gold); letter-spacing:.02em; font-size:clamp(28px,5vw,42px); }
+    .lede { color:var(--muted); margin:5px 0 26px; }
+    .auth,.card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:20px; }
+    .auth { display:flex; gap:10px; align-items:center; margin-bottom:18px; }
+    input { min-width:0; flex:1; background:#101522; border:1px solid var(--line); border-radius:9px; padding:12px; color:white; }
+    button { border:0; border-radius:9px; padding:11px 16px; color:#20190d; background:var(--gold); font-weight:700; cursor:pointer; }
+    button.secondary { background:#34445f; color:white; }
+    button.reject { background:#62404a; color:#fff; }
+    button:disabled { opacity:.45; cursor:wait; }
+    #status { color:var(--muted); min-height:24px; margin:12px 2px; }
+    .card { margin:14px 0; }
+    .top { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
+    h2 { margin:0 0 2px; font-size:22px; }
+    .slug,.meta,.hash { color:var(--muted); font-size:13px; overflow-wrap:anywhere; }
+    .desc { margin:14px 0; }
+    .actions { display:flex; flex-wrap:wrap; gap:9px; }
+    .empty { border:1px dashed var(--line); border-radius:14px; padding:28px; color:var(--muted); text-align:center; }
+    @media(max-width:580px) { .auth { align-items:stretch; flex-direction:column; } .top { flex-direction:column; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>MuseBoy App Mart</h1>
+  <p class="lede">Review submitted GPi apps before they join the public shelf.</p>
+  <section class="auth" aria-label="Reviewer sign in">
+    <input id="token" type="password" autocomplete="off" placeholder="Private reviewer token" aria-label="Private reviewer token">
+    <button id="load">Load review queue</button>
+  </section>
+  <div id="status" role="status"></div>
+  <section id="queue" aria-live="polite"></section>
+</main>
+<script>
+  const token = document.querySelector('#token');
+  const status = document.querySelector('#status');
+  const queue = document.querySelector('#queue');
+  const headers = () => ({ authorization: `Bearer ${token.value}` });
+  const setStatus = text => { status.textContent = text; };
+  async function api(path, options = {}) {
+    const response = await fetch(path, { ...options, headers: { ...headers(), ...(options.headers || {}) } });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+    return body;
+  }
+  async function loadQueue() {
+    queue.replaceChildren();
+    setStatus('Loading review queue…');
+    try {
+      const items = await api('/api/admin/submissions');
+      if (!items.length) {
+        const empty = document.createElement('div'); empty.className = 'empty';
+        empty.textContent = 'Nothing waiting for review.'; queue.append(empty);
+      }
+      for (const item of items) queue.append(makeCard(item));
+      setStatus(`${items.length} submission${items.length === 1 ? '' : 's'} awaiting review.`);
+    } catch (error) { setStatus(error.message); }
+  }
+  function makeCard(item) {
+    const card = document.createElement('article'); card.className = 'card';
+    const top = document.createElement('div'); top.className = 'top';
+    const identity = document.createElement('div');
+    const title = document.createElement('h2'); title.textContent = item.name;
+    const slug = document.createElement('div'); slug.className = 'slug';
+    slug.textContent = `${item.app_id} · ${item.category} · v${item.version}`;
+    identity.append(title, slug);
+    const meta = document.createElement('div'); meta.className = 'meta';
+    meta.textContent = `by ${item.author} · ${new Date(item.submitted_at).toLocaleString()}`;
+    top.append(identity, meta);
+    const description = document.createElement('p'); description.className = 'desc';
+    description.textContent = item.description;
+    const hash = document.createElement('div'); hash.className = 'hash';
+    hash.textContent = `SHA-256: ${item.sha256}`;
+    const actions = document.createElement('div'); actions.className = 'actions';
+    const download = document.createElement('button'); download.className = 'secondary';
+    download.textContent = 'Inspect ZIP';
+    download.onclick = async () => {
+      download.disabled = true;
+      try {
+        const response = await fetch(`/api/admin/submissions/${encodeURIComponent(item.id)}/download`, { headers: headers() });
+        if (!response.ok) throw new Error('Could not download package for review');
+        const url = URL.createObjectURL(await response.blob());
+        const link = document.createElement('a'); link.href = url; link.download = `${item.app_id}-review.zip`;
+        link.click(); URL.revokeObjectURL(url);
+      } catch (error) { setStatus(error.message); }
+      finally { download.disabled = false; }
+    };
+    const approve = document.createElement('button'); approve.textContent = 'Approve & publish';
+    approve.onclick = () => decide(item.id, 'approve');
+    const reject = document.createElement('button'); reject.className = 'reject'; reject.textContent = 'Reject';
+    reject.onclick = () => decide(item.id, 'reject');
+    actions.append(download, approve, reject);
+    card.append(top, description, hash, actions);
+    return card;
+  }
+  async function decide(id, action) {
+    setStatus(action === 'approve' ? 'Publishing approved app…' : 'Rejecting submission…');
+    try {
+      await api(`/api/admin/submissions/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
+      await loadQueue();
+    } catch (error) { setStatus(error.message); }
+  }
+  document.querySelector('#load').addEventListener('click', loadQueue);
+  token.addEventListener('keydown', event => { if (event.key === 'Enter') loadQueue(); });
+</script>
+</body>
+</html>

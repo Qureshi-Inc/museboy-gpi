@@ -1,0 +1,16 @@
+{
+  "name": "museboy-app-mart-backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "setup": "node scripts/setup.mjs",
+    "configure-device": "node scripts/configure-device.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.147.0"
+  },
+  "dependencies": {
+    "fflate": "0.8.3"
+  }
+}

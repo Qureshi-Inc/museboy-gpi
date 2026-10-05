@@ -1,0 +1,3 @@
+# Local-only development secrets. Copy to .dev.vars; never commit real values.
+ADMIN_TOKEN=replace-with-a-long-random-value
+SUBMIT_TOKEN=replace-with-a-different-long-random-value

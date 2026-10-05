@@ -49,7 +49,7 @@ Muse publishes progress only when it reaches a real milestone. Bolt displays the
 2. Boot the CM4 in the GPi and connect it to the network. From a terminal, clone this project and run the GPi display/power patch if it is not already installed:
 
    ```sh
-   git clone https://github.com/moiz-qureshi/museboy-gpi.git
+   git clone https://github.com/Qureshi-Inc/museboy-gpi.git
    cd museboy-gpi
    sudo ./scripts/enable-gpi2-display.sh
    sudo reboot
@@ -64,8 +64,10 @@ Muse publishes progress only when it reaches a real milestone. Bolt displays the
    ```
 
    The installer downloads Whisper's tiny English weights and a Gemma 3 1B Q4 model after asking you to review and accept Google's Gemma terms. The model is about 0.8 GB. Its checksum is verified. The launcher and local model service are enabled at boot.
-4. In MuseBoy, open **Settings → Bluetooth → Muse SDK token** and enter your own token from [gadgets.muse.ai/settings/sdk-tokens](https://gadgets.muse.ai/settings/sdk-tokens). This one-time SDK credential is separate from pairing. The Settings keyboard hides it while typing; the root-owned file is saved with mode `0600` at `/var/lib/musegadget/sdk_token` and is not logged or passed as a command-line argument.
+4. Create a personal Muse SDK token at [gadgets.muse.ai/settings/sdk-tokens](https://gadgets.muse.ai/settings/sdk-tokens). This one-time SDK credential is separate from Bluetooth pairing. Enter it in **Settings → Bluetooth → Muse SDK token** using the GPi keyboard, or configure it from your computer over SSH (easier than typing on the handheld): from a computer with this repo cloned, run `./scripts/set-muse-token-remote.sh <ssh-user>@<gpi-ip>`. The helper prompts for the token without echoing it, transfers it over SSH, and writes it to root-only storage at `/var/lib/musegadget/sdk_token` with mode `0600`; the token is not placed in shell history or command arguments. SSH must be enabled and the GPi reachable; the helper may prompt for the GPi login and sudo passwords in their normal secure prompts.
 5. In **Settings → Bluetooth → Pair this GPi with Muse**, then in the Muse phone app turn on Developer Mode and select **Settings → Devices → Add Device**. Choose the nearby `MuseGadget…` device. The SDK opens BLE pairing for ten minutes. No Tailscale account or QR scan is required for ordinary Muse pairing.
+
+**No Cloudflare sign-in is needed.** MuseBoy connects to the shared MuseBoy App Mart automatically. Cloudflare is managed by the marketplace operator; it is not part of device setup, Muse SDK token entry, Bluetooth pairing, App Builder, or Settings.
 
 After first pairing, MuseBoy sends one message in your Muse chat asking permission to read the App Builder skill at `/opt/gpi/apps/builder/SKILL.md`. Reply **yes** once to let Muse read that file and use it for future app builds; the prompt is not repeated. Until you agree, MuseBoy does not ask Muse to read the skill. If you decline, ordinary transcript handoff continues using the built-in handoff contract.
 
@@ -80,7 +82,7 @@ That flag installs Tailscale and displays its sign-in QR code. Omitting the flag
 ## Using the four apps
 
 - **MuseBoy Home:** D-pad moves through the grid; A opens an app; B or Start returns; Select returns Home from a running app.
-- **App Mart:** browse/install community apps when its backend is configured; the included local demo shelf works offline.
+- **App Mart:** connects to the shared MuseBoy App Mart; left/right browses, A installs, X opens its D-pad search keyboard, Y cycles categories, and Start opens **My installed apps** to submit an app for review if you have contributor access. Browsing and downloads need no Cloudflare account or key. B returns. The included local demo shelf works offline if the network is unavailable.
 - **App Builder:** press A to record a new idea, or X to choose an installed app to update. Recording lasts up to 60 seconds; B stops early. After local transcription, Builder sends Muse only the transcript. Select returns Home; the local job remains recoverable in **Y → Jobs**.
 - **Settings:** choose Wi-Fi and enter passwords with the D-pad keyboard; pair Bluetooth audio/controller devices; choose microphone and speaker; inspect USB cameras; enter/pair Muse; and review local model status.
 

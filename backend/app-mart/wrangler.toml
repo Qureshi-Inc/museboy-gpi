@@ -1,0 +1,20 @@
+name = "museboy-app-mart"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "museboy-app-mart"
+database_id = "57e38cad-7007-4684-8748-60cdcd5afc50"
+migrations_dir = "migrations"
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "museboy-app-mart"
+
+[vars]
+MAX_APP_BUNDLE_BYTES = "10485760"
