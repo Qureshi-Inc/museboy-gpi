@@ -11,7 +11,7 @@ Mapping:
   A     -> Enter (pygame UI) + left-click (Chromium)
   B     -> Escape
   X     -> Tab
-  Y     -> Y
+  Y     -> Y on tap; hold 0.65s to toggle mouse mode
   LB/RB -> PageUp / PageDown
   Start -> Space
   Select-> F13 (global "home" signal, watched by the launcher)
@@ -45,6 +45,7 @@ MOUSE_BTNS = [ecodes.BTN_LEFT, ecodes.BTN_RIGHT]
 STICK_DEADZONE = 12000
 MOUSE_SPEED = 12  # pixels per D-pad press event
 MOUSE_REPEAT_DELAY = 0.03  # seconds between moves when held
+MOUSE_TOGGLE_HOLD = 0.65
 
 
 def find_gamepad():
@@ -93,8 +94,10 @@ def main():
     # Track D-pad held state for continuous mouse movement
     mouse_dx, mouse_dy = 0, 0
     # Y button toggles mouse mode: when ON, D-pad moves mouse and A clicks
-    # (no arrow keys/Enter); when OFF, normal gamepad behavior.
+    # (no arrow keys/Enter); a short Y press is passed to apps as KEY_Y.
     mouse_mode = False
+    y_down_at = None
+    y_long_fired = False
 
     import select
 
@@ -111,15 +114,27 @@ def main():
                 if r:
                     for ev in dev.read():
                         if ev.type == ecodes.EV_KEY and ev.code in BTN_KEYMAP:
-                            # Y toggles mouse mode (on press, not release).
-                            # Back and Home always restore the normal controls
-                            # before sending their key to the current app.
-                            if ev.code == 308 and ev.value == 1:  # Y
-                                mouse_mode = not mouse_mode
-                                # Release D-pad state when toggling
-                                mouse_dx, mouse_dy = 0, 0
-                                hat_x.update(0)
-                                hat_y.update(0)
+                            # Tap Y for app actions (such as Builder > Jobs).
+                            # A long Y press toggles pointer mode; a short Y
+                            # press exits pointer mode.
+                            if ev.code == 308:
+                                if ev.value == 1 and y_down_at is None:
+                                    y_down_at = time.monotonic()
+                                    y_long_fired = False
+                                elif ev.value == 0 and y_down_at is not None:
+                                    if mouse_mode and not y_long_fired:
+                                        mouse_mode = False
+                                        mouse_dx, mouse_dy = 0, 0
+                                        hat_x.update(0)
+                                        hat_y.update(0)
+                                        stick_x.update(0)
+                                        stick_y.update(0)
+                                    elif not y_long_fired:
+                                        ui.write(ecodes.EV_KEY, ecodes.KEY_Y, 1)
+                                        ui.write(ecodes.EV_KEY, ecodes.KEY_Y, 0)
+                                        ui.syn()
+                                    y_down_at = None
+                                    y_long_fired = False
                             elif ev.value == 1 and ev.code in (305, 314):
                                 # Back (B) and Select (Home) must not leave the
                                 # launcher in pointer mode after an app exits.
@@ -164,6 +179,15 @@ def main():
                                     1 if ev.value > STICK_DEADZONE else 0)
                                 stick_y.update(v)
                 # Continuous mouse movement while D-pad held (mouse mode only)
+                if (y_down_at is not None and not mouse_mode and not y_long_fired and
+                        time.monotonic() - y_down_at >= MOUSE_TOGGLE_HOLD):
+                    mouse_mode = True
+                    y_long_fired = True
+                    mouse_dx, mouse_dy = 0, 0
+                    hat_x.update(0)
+                    hat_y.update(0)
+                    stick_x.update(0)
+                    stick_y.update(0)
                 if mouse_mode and (mouse_dx or mouse_dy):
                     if mouse_dx:
                         ui.write(ecodes.EV_REL, ecodes.REL_X, mouse_dx)
@@ -186,6 +210,8 @@ def main():
                 pass
             mouse_dx, mouse_dy = 0, 0
             mouse_mode = False
+            y_down_at = None
+            y_long_fired = False
         time.sleep(1.0)
 
 

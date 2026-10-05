@@ -11,7 +11,7 @@
   <img alt="Local AI" src="https://img.shields.io/badge/voice%20and%20planning-local-168f84">
 </div>
 
-MuseBoy brings **Home**, **App Mart**, **App Builder**, and **Settings** to the GPi Case 2. Whisper transcribes voice locally, Gemma drafts the app plan locally, and Muse receives only the text plan after you approve it.
+MuseBoy brings **Home**, **App Mart**, **App Builder**, and **Settings** to the GPi Case 2. Whisper transcribes voice locally; App Builder sends only that transcript to Muse and notifies Muse when a request is queued. Gemma is not part of the normal voice-to-Muse flow; it can be run separately for local planner experiments.
 
 ## Screenshots
 
@@ -33,9 +33,13 @@ The intended target is a Raspberry Pi Compute Module 4 with eMMC, 8 GB RAM, the 
 
 ## What happens to your voice
 
-App Builder records from the microphone selected in **Settings → Audio**. Whisper transcribes the recording on the GPi. Gemma drafts a full `plan.json` locally; Bolt shows the full contract for review and keeps a short 2–4 sentence preview in `status.json`. **A** approves and sends only that text plan to Muse. **X** records an added detail and regenerates the plan. **B** cancels. The recording is deleted after local transcription and is never included in a Muse request.
+App Builder records from the microphone selected in **Settings → Audio**, for up to 60 seconds (press **B** to stop sooner). Whisper transcribes on the GPi and shows the exact words it heard; press **A** to send and authorize the build or **X** to record again. A one-word result is rejected so accidental noise is not sent as an app request. For a new idea, the request metadata marks `operation: create_new_app`. When you choose an installed app with **X**, the request marks `operation: modify_existing_app` and includes that app's ID and name; Muse is instructed to update that exact app in place, preserve its ID, and not create a duplicate. Muse receives exactly `requests/<id>/transcript.txt` and `meta.json`; the GPi never creates `builds/<id>/status.json`. Once queued, App Builder uses the Muse SDK's `send-user-msg` command to notify Muse which request folder is ready. If messaging is offline, the notification retries while the request remains safely queued. When Muse publishes a plan preview waiting for approval, Builder creates Muse's `approved` marker using the user's original A authorization, so there is no second approval prompt. Muse owns its status file, which Builder reads for progress. The WAV is deleted after a usable transcript is made and is never included in a Muse request. Settings → Audio also has a live mic-level check; it samples the selected input while active and does not save audio.
 
-The contract covers each screen's normal, empty, loading, and error behavior; D-pad and A/B/X/Y/Start actions; exact data endpoints, parameters, timeouts, and offline behavior; scope; icon direction; and 3–5 acceptance checks. Missing or unverified data sources become blocking questions rather than invented URLs.
+Gemma is not called when recording, transcribing, or submitting a normal App Builder request. To exercise the local structured planner separately, run it with a typed transcript; it prints a local JSON plan and sends nothing to Muse:
+
+```sh
+python3 /opt/gpi/apps/builder/local_plan.py --text "Make a tiny offline todo list"
+```
 
 Muse publishes progress only when it reaches a real milestone. Bolt displays the reported stage, any percentage Muse explicitly reports, and the age of Muse's last status update. It never derives percentage from elapsed time. A status older than three minutes is labeled stale; the worker's milestone cadence is about two minutes, so age naturally grows between updates.
 
@@ -63,6 +67,8 @@ Muse publishes progress only when it reaches a real milestone. Bolt displays the
 4. In MuseBoy, open **Settings → Bluetooth → Muse SDK token** and enter your own token from [gadgets.muse.ai/settings/sdk-tokens](https://gadgets.muse.ai/settings/sdk-tokens). This one-time SDK credential is separate from pairing. The Settings keyboard hides it while typing; the root-owned file is saved with mode `0600` at `/var/lib/musegadget/sdk_token` and is not logged or passed as a command-line argument.
 5. In **Settings → Bluetooth → Pair this GPi with Muse**, then in the Muse phone app turn on Developer Mode and select **Settings → Devices → Add Device**. Choose the nearby `MuseGadget…` device. The SDK opens BLE pairing for ten minutes. No Tailscale account or QR scan is required for ordinary Muse pairing.
 
+After first pairing, MuseBoy sends one message in your Muse chat asking permission to read the App Builder skill at `/opt/gpi/apps/builder/SKILL.md`. Reply **yes** once to let Muse read that file and use it for future app builds; the prompt is not repeated. Until you agree, MuseBoy does not ask Muse to read the skill. If you decline, ordinary transcript handoff continues using the built-in handoff contract.
+
 **Optional remote access:** Tailscale is off by default and is not needed to pair Muse. To add it during setup, run:
 
 ```sh
@@ -75,10 +81,10 @@ That flag installs Tailscale and displays its sign-in QR code. Omitting the flag
 
 - **MuseBoy Home:** D-pad moves through the grid; A opens an app; B or Start returns; Select returns Home from a running app.
 - **App Mart:** browse/install community apps when its backend is configured; the included local demo shelf works offline.
-- **App Builder:** press A to record a new idea, or X to choose an installed app to update. B stops a recording early. Review the full scrollable plan, A approves, X adds a detail, and B cancels.
+- **App Builder:** press A to record a new idea, or X to choose an installed app to update. Recording lasts up to 60 seconds; B stops early. After local transcription, Builder sends Muse only the transcript. Select returns Home; the local job remains recoverable in **Y → Jobs**.
 - **Settings:** choose Wi-Fi and enter passwords with the D-pad keyboard; pair Bluetooth audio/controller devices; choose microphone and speaker; inspect USB cameras; enter/pair Muse; and review local model status.
 
-In **Settings → Local AI**, the first row shows the model currently loaded by llama.cpp. GGUF files placed in `/opt/gpi/local-ai/models/` appear below it. Select a supported downloaded model to reload the planner. MuseBoy marks models over 2.5 GB as too large for its configured memory limit. Other GGUF models may vary in JSON-plan quality and speed; the default Gemma model is the one exercised by this project.
+In **Settings → Local AI**, the first row shows the model currently loaded by llama.cpp. GGUF files placed in `/opt/gpi/local-ai/models/` appear below it. Select a supported downloaded model to reload the optional local planner. MuseBoy marks models over 2.5 GB as too large for its configured memory limit. Other GGUF models may vary in JSON-plan quality and speed. The default Gemma model is available for isolated planner experiments only; it does not draft or approve plans in the normal Muse handoff.
 
 To add a model, copy its `.gguf` file into `/opt/gpi/local-ai/models/`, then set ownership and permissions:
 
@@ -107,7 +113,7 @@ python3 -m compileall -q launcher common apps input
 bash -n scripts/*.sh
 ```
 
-On the CM4, check the local services with `systemctl status gpi-local-llm gpi-console gpi-input`. The local model test is also exercised by speaking a short idea in App Builder; confirm the transcript and full plan before pressing A. Then verify the approved request contains `plan.json` and no audio file.
+On the CM4, check the local services with `systemctl status gpi-local-llm gpi-console gpi-input`. In Settings → Audio, select **Mic level check**, speak, and verify its meter moves; press A again to stop. App Builder also shows a live input-level visualization while recording, using the same PulseAudio default microphone stream saved for transcription. Speak and confirm the bars respond before recording an idea. Verify its transcript, then press A. Confirm `requests/<id>/` contains only `transcript.txt` and `meta.json`, and that the device has not created anything in `builds/<id>/`. Gemma can be exercised separately with the typed-transcript command above.
 
 ## Upstream hardware references
 

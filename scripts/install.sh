@@ -53,6 +53,13 @@ install -m 0755 "$ROOT/apps/appmart/main.py" /opt/gpi/apps/appmart/
 cp -a "$ROOT/apps/appmart/demo" /opt/gpi/apps/appmart/
 install -m 0755 "$ROOT/apps/builder/builder.py" "$ROOT/apps/builder/local_plan.py" \
   /opt/gpi/apps/builder/
+install -m 0644 "$ROOT/docs/MUSE-HANDOFF.md" \
+  /opt/gpi/apps/builder/MUSE-HANDOFF.md
+install -m 0644 "$ROOT/.agents/skills/museboy-app-builder/SKILL.md" \
+  /opt/gpi/apps/builder/SKILL.md
+install -m 0755 "$ROOT/scripts/gpi-muse-skill-onboard" /usr/local/sbin/
+install -m 0644 "$ROOT/scripts/gpi-muse-skill-onboard.service" \
+  "$ROOT/scripts/gpi-muse-skill-onboard.path" /etc/systemd/system/
 install -m 0755 "$ROOT/apps/settings/main.py" /opt/gpi/apps/settings/
 
 install -m 0755 "$ROOT/runtime/linux-aarch64/llama-server" \
@@ -144,4 +151,5 @@ systemctl enable gpi-input.service gpi-console.service gpi-local-llm.service
 systemctl restart gpi-input.service
 systemctl restart gpi-local-llm.service
 systemctl restart gpi-console.service
+systemctl enable --now gpi-muse-skill-onboard.path
 echo "MuseBoy installed. In Settings > Bluetooth, enter your personal Muse SDK token and open BLE pairing."

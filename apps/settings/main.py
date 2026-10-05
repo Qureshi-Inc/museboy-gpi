@@ -4,6 +4,8 @@
 No desktop keyboard is required: Wi-Fi SSIDs and passwords use the built-in
 D-pad keyboard. Long-running scans and connections run off the UI thread.
 """
+import array
+import math
 import os
 import pty
 import re
@@ -27,6 +29,84 @@ MUTED = (150, 160, 180)
 CYAN = (107, 206, 232)
 GREEN = (120, 220, 160)
 RED = (250, 130, 120)
+
+
+def mic_level(samples):
+    """Map signed 16-bit PCM peak amplitude to a readable 0–100 meter."""
+    peak = max((abs(int(sample)) for sample in samples), default=0)
+    if peak < 1:
+        return 0
+    dbfs = 20 * math.log10(min(32768, peak) / 32768.0)
+    return max(0, min(100, int((dbfs + 55) * 100 / 52)))
+
+
+class MicMeter:
+    """Brief live PulseAudio capture for input testing; samples are never saved."""
+    def __init__(self):
+        self.process = None
+        self.thread = None
+        self.stop_event = threading.Event()
+        self.lock = threading.Lock()
+        self.level = 0
+        self.error = ""
+
+    def start(self, source):
+        self.stop()
+        if not source:
+            self.error = "No microphone selected"
+            return False
+        self.level = 0
+        self.error = ""
+        self.stop_event = threading.Event()
+        try:
+            self.process = subprocess.Popen(
+                ["parec", "--device=" + source, "--format=s16le", "--rate=16000",
+                 "--channels=1", "--raw"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+        except OSError as exc:
+            self.error = "Mic monitor unavailable: " + str(exc)[:50]
+            self.process = None
+            return False
+        self.thread = threading.Thread(target=self._read, daemon=True)
+        self.thread.start()
+        return True
+
+    def _read(self):
+        proc = self.process
+        while proc and not self.stop_event.is_set():
+            try:
+                block = proc.stdout.read(2048)
+            except (OSError, ValueError):
+                break
+            if not block:
+                break
+            samples = array.array("h")
+            samples.frombytes(block[:len(block) - (len(block) % 2)])
+            value = mic_level(samples)
+            with self.lock:
+                self.level = value
+        if proc and proc.poll() is not None and not self.stop_event.is_set():
+            with self.lock:
+                self.error = "Mic stream ended; check the selected input"
+
+    def snapshot(self):
+        with self.lock:
+            return self.level, self.error, self.process is not None and self.process.poll() is None
+
+    def stop(self):
+        self.stop_event.set()
+        proc, thread = self.process, self.thread
+        self.process = self.thread = None
+        if proc and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        if thread and thread.is_alive():
+            thread.join(timeout=1)
+        with self.lock:
+            self.level = 0
 
 
 def font(size):
@@ -375,6 +455,7 @@ class SettingsApp:
         self.audio_row = 0
         self.volume_out = 50
         self.volume_in = 70
+        self.mic_meter = MicMeter()
         self.devices = {"usb": [], "cameras": []}
         self.local_ai = {"models": [], "loaded": None,
                          "configured": None, "running": False}
@@ -566,13 +647,21 @@ class SettingsApp:
     def draw_audio(self):
         sinks, sources = self.audio.get("sinks", []), self.audio.get("sources", [])
         defaults = self.audio.get("defaults", {})
+        level, error, running = self.mic_meter.snapshot()
+        if error:
+            meter_detail = "ERROR · " + error
+        elif running:
+            meter_detail = "%d%% %s" % (level, "#" * min(10, round(level / 10)) or "speak")
+        else:
+            meter_detail = "A to listen · not recorded"
         rows = [("Speaker / output", "Choose a device")]
         rows += [("  " + x["label"], "Current" if x["name"] == defaults.get("sink") else "Use") for x in sinks]
         rows += [("Microphone / input", "Choose a device")]
         rows += [("  " + x["label"], "Current" if x["name"] == defaults.get("source") else "Use") for x in sources]
         rows += [("Output volume", "%d%%  ◀ / ▶" % self.volume_out),
-                 ("Input gain", "%d%%  ◀ / ▶" % self.volume_in)]
-        self.rows("Audio", rows, "Default devices used by voice apps")
+                 ("Input gain", "%d%%  ◀ / ▶" % self.volume_in),
+                 ("Mic level check", meter_detail)]
+        self.rows("Audio", rows, "Live mic meter · no audio saved")
 
     def draw_devices(self):
         rows = [("USB accessory", name) for name in self.devices["usb"]]
@@ -801,6 +890,19 @@ class SettingsApp:
                 self.say("Connecting…", 25)
         elif self.page == "audio":
             sinks, sources = self.audio.get("sinks", []), self.audio.get("sources", [])
+            mic_row = len(sinks) + len(sources) + 4
+            if self.row == mic_row:
+                _, _, running = self.mic_meter.snapshot()
+                if running:
+                    self.mic_meter.stop()
+                    self.say("Mic check stopped; no recording was saved")
+                else:
+                    source = self.audio.get("defaults", {}).get("source")
+                    if self.mic_meter.start(source):
+                        self.say("Speak now; live mic level appears here", 30)
+                    else:
+                        self.say(self.mic_meter.error or "Select a microphone first", 8)
+                return
             if 1 <= self.row <= len(sinks):
                 dev = sinks[self.row - 1]
                 rc, _ = command(["pactl", "set-default-sink", dev["name"]])
@@ -808,6 +910,7 @@ class SettingsApp:
                 self.start(audio_snapshot)
             elif len(sinks) + 2 <= self.row < len(sinks) + 2 + len(sources):
                 dev = sources[self.row - len(sinks) - 2]
+                self.mic_meter.stop()
                 rc, _ = command(["pactl", "set-default-source", dev["name"]])
                 self.say("Microphone set to " + dev["label"] if rc == 0 else "Could not select microphone")
                 self.start(audio_snapshot)
@@ -842,6 +945,8 @@ class SettingsApp:
         elif self.page == "main":
             self.page = "exit"
         else:
+            if self.page == "audio":
+                self.mic_meter.stop()
             self.page = "main"
             self.row = 0
 
@@ -874,7 +979,7 @@ class SettingsApp:
         if self.page == "bluetooth":
             return 4 + len(self.bt_devices)
         if self.page == "audio":
-            return 4 + len(self.audio.get("sinks", [])) + len(self.audio.get("sources", []))
+            return 5 + len(self.audio.get("sinks", [])) + len(self.audio.get("sources", []))
         if self.page == "devices":
             return max(1, len(self.devices["usb"]) + len(self.devices["cameras"]))
         if self.page == "system":
@@ -916,14 +1021,17 @@ class SettingsApp:
 
     def run(self):
         clock = pygame.time.Clock()
-        while self.page != "exit":
-            for ev in pygame.event.get():
-                if ev.type == pygame.QUIT:
-                    return
-                if ev.type == pygame.KEYDOWN:
-                    self.handle_key(ev.key)
-            self.draw()
-            clock.tick(30)
+        try:
+            while self.page != "exit":
+                for ev in pygame.event.get():
+                    if ev.type == pygame.QUIT:
+                        return
+                    if ev.type == pygame.KEYDOWN:
+                        self.handle_key(ev.key)
+                self.draw()
+                clock.tick(30)
+        finally:
+            self.mic_meter.stop()
 
 
 def wifi_radio(state):

@@ -1,0 +1,12 @@
+[Unit]
+Description=Ask once before Muse reads the MuseBoy App Builder skill
+Wants=musegadget.service
+After=musegadget.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/gpi-muse-skill-onboard
+Restart=on-failure
+RestartSec=30s
+TimeoutStartSec=120s

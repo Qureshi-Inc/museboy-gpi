@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PAIRING_FILE="${MUSE_PAIRING_FILE:-/var/lib/musegadget/pairing.json}"
+SENT_MARKER="${MUSE_SKILL_ONBOARD_MARKER:-/var/lib/gpi-builder/.skill-consent-prompt-sent}"
+MUSEGADGET="${MUSEGADGET_BIN:-/usr/local/bin/musegadget}"
+SYSTEMCTL="${SYSTEMCTL_BIN:-systemctl}"
+
+# The systemd path unit starts this only after Muse pairing exists. Keep the
+# guard as well so manual starts and repeated path events cannot spam the chat.
+[[ -s "$PAIRING_FILE" ]] || exit 0
+if [[ -e "$SENT_MARKER" ]]; then
+    "$SYSTEMCTL" disable --now gpi-muse-skill-onboard.path || true
+    exit 0
+fi
+
+message="I'm a MuseBoy running App Builder. To build apps from your voice, I need my skill at /opt/gpi/apps/builder/SKILL.md. May I have Muse read that one file once? If you say yes, read it with file.read and use it for future App Builder requests. I won't fetch it before you agree."
+
+"$MUSEGADGET" send-user-msg "$message"
+
+mkdir -p "$(dirname "$SENT_MARKER")"
+temporary="${SENT_MARKER}.tmp.$$"
+trap 'rm -f "$temporary"' EXIT
+umask 022
+: > "$temporary"
+mv -f "$temporary" "$SENT_MARKER"
+"$SYSTEMCTL" disable --now gpi-muse-skill-onboard.path || true

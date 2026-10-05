@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch for first successful Muse pairing for skill consent
+Wants=musegadget.service
+After=musegadget.service
+
+[Path]
+PathExists=/var/lib/musegadget/pairing.json
+Unit=gpi-muse-skill-onboard.service
+
+[Install]
+WantedBy=multi-user.target
