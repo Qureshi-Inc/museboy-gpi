@@ -130,6 +130,19 @@ def fetch_icon(app_id):
     return None
 
 
+def fetch_icon_bytes(app_id):
+    """Fetch an icon without decoding it; pygame surfaces stay on the UI thread."""
+    if not SHOP_URL:
+        return None
+    try:
+        r = requests.get(f"{SHOP_URL.rstrip('/')}/api/apps/{app_id}/icon", timeout=6)
+        if r.status_code == 200 and r.content.startswith(b"\x89PNG\r\n\x1a\n"):
+            return r.content
+    except Exception:
+        pass
+    return None
+
+
 def fetch_categories():
     if not SHOP_URL:
         return ["all"]
@@ -480,12 +493,17 @@ class Appmart:
 
         self.state = "SHELF"
         self.search_query = ""
-        self.categories = fetch_categories()
+        # Show a usable shelf immediately. Catalog and icon traffic must never
+        # hold the Pygame screen in black while Wi-Fi or the shop wakes up.
+        self.categories = ["all"]
         self.category_index = 0
-        self.shelf = fetch_shelf()
-        self.demo = self.shelf is None
-        if self.demo:
-            self.shelf = demo_apps()
+        self.shelf = demo_apps()
+        self.demo = True
+        self.catalog_loading = True
+        self.catalog_result = None
+        self.icon_requests = set()
+        self.icon_results = {}
+        self.icon_lock = threading.Lock()
         self.sel = 0
         self.icon_cache = {}
         self.detail_app = None
@@ -510,6 +528,44 @@ class Appmart:
             self.share_sel = next((i for i, app in enumerate(self.share_apps)
                                    if app.get("id") == share_app_id), 0)
             self.state = "MY_APPS"
+        self.catalog_thread = threading.Thread(target=self.load_catalog, daemon=True)
+        self.catalog_thread.start()
+
+    def load_catalog(self):
+        categories = fetch_categories()
+        shelf = fetch_shelf()
+        self.catalog_result = (categories, shelf)
+
+    def apply_catalog_result(self):
+        result = self.catalog_result
+        if result is None:
+            return
+        self.catalog_result = None
+        self.catalog_loading = False
+        categories, shelf = result
+        self.categories = categories or ["all"]
+        self.category_index = min(self.category_index, len(self.categories) - 1)
+        if shelf is None:
+            self.demo = True
+            self.shelf = demo_apps()
+        else:
+            self.demo = False
+            self.shelf = shelf
+        self.icon_cache.clear()
+        self.sel = min(self.sel, max(0, len(self.shelf) - 1))
+
+    def request_icon(self, app_id):
+        with self.icon_lock:
+            if app_id in self.icon_requests:
+                return
+            self.icon_requests.add(app_id)
+
+        def download():
+            data = fetch_icon_bytes(app_id)
+            with self.icon_lock:
+                self.icon_results[app_id] = data
+
+        threading.Thread(target=download, daemon=True).start()
 
     def refresh_shelf(self):
         shelf = fetch_shelf(self.search_query, self.categories[self.category_index])
@@ -526,8 +582,24 @@ class Appmart:
 
     def icon(self, app, size):
         key = (app["id"], size)
+        if app.get("demo"):
+            if key not in self.icon_cache:
+                self.icon_cache[key] = load_icon(app, size)
+            return self.icon_cache[key]
+
+        app_id = app["id"]
+        with self.icon_lock:
+            data = self.icon_results.get(app_id)
+        if data:
+            try:
+                image = pygame.image.load(io.BytesIO(data)).convert_alpha()
+                self.icon_cache[key] = pygame.transform.smoothscale(image, (size, size))
+            except Exception:
+                pass
+        elif app_id not in self.icon_requests:
+            self.request_icon(app_id)
         if key not in self.icon_cache:
-            self.icon_cache[key] = load_icon(app, size)
+            self.icon_cache[key] = procedural_icon(app.get("name", "?"), size)
         return self.icon_cache[key]
 
     # ---------- background ----------
@@ -567,7 +639,9 @@ class Appmart:
     def draw_shelf(self, t):
         self.draw_bg(t)
         self.draw_header()
-        if self.demo:
+        if self.catalog_loading:
+            bubble = "Waking the shop — browse while it loads."
+        elif self.demo:
             bubble = "The shop opens soon! Here's a taste — on the house."
         elif not self.shelf:
             bubble = "Nothing stocked yet — go build one and share it!"
@@ -886,6 +960,7 @@ class Appmart:
         running = True
         while running:
             t = time.time()
+            self.apply_catalog_result()
             for e in pygame.event.get():
                 if e.type == pygame.QUIT:
                     running = False

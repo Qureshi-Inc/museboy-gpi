@@ -109,8 +109,10 @@ test("health and searchable category-filtered published catalog", async () => {
   assert.equal(health.status, 200);
   assert.equal((await health.json()).ok, true);
   const apps = await call("/api/apps?q=puzzle&category=games", env);
+  assert.equal(apps.headers.get("cache-control"), "no-store");
   assert.deepEqual((await apps.json()).map(app => app.id), ["blocks"]);
   const categories = await call("/api/categories", env);
+  assert.equal(categories.headers.get("cache-control"), "no-store");
   assert.deepEqual((await categories.json()).map(row => row.category).sort(), ["demo", "games"]);
 });
 

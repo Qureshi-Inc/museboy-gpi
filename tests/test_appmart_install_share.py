@@ -104,6 +104,22 @@ class AppMartInstallShareTests(unittest.TestCase):
         finally:
             appmart.APP_MART_DATA_DIR, appmart.APP_MART_AUTHOR_FILE = old_dir, old_file
 
+    def test_background_catalog_result_replaces_instant_local_shelf(self):
+        mart = object.__new__(appmart.Appmart)
+        mart.catalog_result = (["all", "games"], [{"id": "remote", "name": "Remote app"}])
+        mart.catalog_loading = True
+        mart.category_index = 0
+        mart.shelf = appmart.demo_apps()
+        mart.demo = True
+        mart.sel = 0
+        mart.icon_cache = {("hello", 104): object()}
+        mart.apply_catalog_result()
+        self.assertEqual(mart.shelf, [{"id": "remote", "name": "Remote app"}])
+        self.assertEqual(mart.categories, ["all", "games"])
+        self.assertFalse(mart.demo)
+        self.assertFalse(mart.catalog_loading)
+        self.assertFalse(mart.icon_cache)
+
 
 if __name__ == "__main__":
     unittest.main()

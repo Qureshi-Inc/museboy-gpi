@@ -195,7 +195,7 @@ async function handleApi(request, env) {
   if (url.pathname === "/api/categories" && request.method === "GET") {
     const result = await env.DB.prepare(`SELECT category, COUNT(*) AS app_count
       FROM apps GROUP BY category ORDER BY category`).all();
-    return json(result.results || []);
+    return json(result.results || [], 200, { "cache-control": "no-store" });
   }
   if (url.pathname === "/api/apps" && request.method === "GET") {
     const query = (url.searchParams.get("q") || "").trim().slice(0, 80);
@@ -206,7 +206,7 @@ async function handleApi(request, env) {
       AND (? = '' OR instr(lower(name || ' ' || description || ' ' || author), lower(?)) > 0)
       ORDER BY downloads DESC, name COLLATE NOCASE ASC LIMIT 100`)
       .bind(category, category, query, query).all();
-    return json(result.results || []);
+    return json(result.results || [], 200, { "cache-control": "no-store" });
   }
   const asset = url.pathname.match(/^\/api\/apps\/([a-z0-9-]+)\/(icon|download)$/);
   if (asset && request.method === "GET") {

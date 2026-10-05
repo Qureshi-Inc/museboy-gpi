@@ -70,8 +70,10 @@
   const count = document.querySelector('#count');
   let selectedCategory = 'all';
   let searchTimer;
+  let lastAppPayload;
+  let lastCategoryPayload;
   const api = async path => {
-    const response = await fetch(path, { headers: { 'accept': 'application/json' } });
+    const response = await fetch(path, { cache: 'no-store', headers: { 'accept': 'application/json' } });
     if (!response.ok) throw new Error(`The shelf could not load (${response.status}).`);
     return response.json();
   };
@@ -102,24 +104,31 @@
     const link = document.createElement('a'); link.className = 'download'; link.textContent = 'Download for MuseBoy'; link.href = `/api/apps/${encodeURIComponent(app.id)}/download`; link.download = `${app.id}.zip`;
     card.append(top, description, meta, link); return card;
   }
-  async function loadApps() {
-    status.textContent = 'Looking through the shelf…'; apps.replaceChildren();
+  async function loadApps(quiet = false) {
+    if (!quiet) { status.textContent = 'Looking through the shelf…'; apps.replaceChildren(); }
     const params = new URLSearchParams();
     if (query.value.trim()) params.set('q', query.value.trim());
     if (selectedCategory !== 'all') params.set('category', selectedCategory);
     try {
       const items = await api(`/api/apps?${params}`);
       count.textContent = `${items.length} app${items.length === 1 ? '' : 's'}`;
+      const payload = JSON.stringify(items);
+      if (quiet && payload === lastAppPayload) return;
+      lastAppPayload = payload;
+      apps.replaceChildren();
       if (!items.length) {
         const empty = document.createElement('div'); empty.className = 'empty';
         empty.textContent = 'No apps here yet. Try another search or category.'; apps.append(empty);
       } else for (const app of items) apps.append(makeCard(app));
       status.textContent = '';
-    } catch (error) { status.textContent = error.message; count.textContent = ''; }
+    } catch (error) { if (!quiet) { status.textContent = error.message; count.textContent = ''; } }
   }
   async function loadCategories() {
     try {
       const values = await api('/api/categories');
+      const payload = JSON.stringify(values);
+      if (payload === lastCategoryPayload) return;
+      lastCategoryPayload = payload;
       categories.replaceChildren();
       const all = makeChip('Everything', 'all'); all.dataset.value = 'all'; categories.append(all);
       for (const item of values) {
@@ -130,6 +139,9 @@
   }
   query.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadApps, 220); });
   (async () => { await loadCategories(); await loadApps(); })();
+  setInterval(() => {
+    if (!document.hidden) { loadCategories(); loadApps(true); }
+  }, 30000);
 </script>
 </body>
 </html>
