@@ -789,7 +789,7 @@ class SettingsApp:
                 label = key.upper() if self.edit["upper"] else key
                 surf = self.item.render(label, True, WHITE)
                 self.screen.blit(surf, surf.get_rect(center=rect.center))
-        controls = ["SHIFT", "SYM", "SPACE", "DEL", "CLEAR", "SHOW" if self.edit["kind"] in ("password", "token") else "", "CANCEL", "DONE"]
+        controls = self._control_keys()
         bx, by, bw, bh, bgap = 18, 293, 73, 40, 4
         for c, key in enumerate(controls):
             if not key:
@@ -801,41 +801,58 @@ class SettingsApp:
                 pygame.draw.rect(self.screen, ACCENT, rect, 2, border_radius=6)
             surf = self.tiny.render(key, True, WHITE)
             self.screen.blit(surf, surf.get_rect(center=rect.center))
-        self.screen.blit(self.tiny.render("Arrows move · A type · X changes case · B cancel", True, MUTED), (23, 354))
+        self.screen.blit(self.tiny.render("Arrows move · A type · X shift · B cancel · Select home", True, MUTED), (23, 354))
         help_text = ("Token stays hidden; it is stored only on this device." if self.edit["kind"] == "token"
                      else "Password stays hidden. Done connects and saves this network.")
         self.screen.blit(self.tiny.render(help_text, True, MUTED), (23, 374))
 
     def keyboard_move(self, key):
         e = self.edit
-        r, c = e["cursor"]
+        c, r = e["cursor"]
         if key == pygame.K_LEFT:
-            c = (c - 1) % (8 if r == 4 else len(self._keyrow(r)))
+            c = max(0, c - 1)
+            while c > 0 and not self._keyrow(r)[c]:
+                c -= 1
         elif key == pygame.K_RIGHT:
-            c = (c + 1) % (8 if r == 4 else len(self._keyrow(r)))
+            c = min(len(self._keyrow(r)) - 1, c + 1)
+            while c < len(self._keyrow(r)) - 1 and not self._keyrow(r)[c]:
+                c += 1
         elif key == pygame.K_UP:
-            r = (r - 1) % 5
-            c = min(c, (7 if r == 4 else len(self._keyrow(r)) - 1))
+            r = max(0, r - 1)
+            c = self._nearest_key_column(r, c)
         elif key == pygame.K_DOWN:
-            r = (r + 1) % 5
-            c = min(c, (7 if r == 4 else len(self._keyrow(r)) - 1))
+            r = min(4, r + 1)
+            c = self._nearest_key_column(r, c)
         elif key == pygame.K_TAB:
             e["upper"] = not e["upper"]
         elif key == pygame.K_BACKSPACE:
             e["text"] = e["text"][:-1]
         elif key in (pygame.K_RETURN, pygame.K_KP_ENTER):
-            if r == 4:
-                self.use_keyboard_key(["SHIFT", "SYM", "SPACE", "DEL", "CLEAR", "SHOW", "CANCEL", "DONE"][c])
-            else:
-                self.use_keyboard_key(self._keyrow(r)[c])
+            selected = self._keyrow(r)[c]
+            if selected:
+                self.use_keyboard_key(selected)
         elif key == pygame.K_ESCAPE:
             self.edit = None
         e["cursor"] = [c, r]
 
     def _keyrow(self, row):
+        if row == 4:
+            return self._control_keys()
         if self.edit["symbols"]:
             return [list("1234567890"), list("@#$%&*-_+"), list("!?:;.,/\\"), list("()[]{}'\"=")][row]
         return [list("1234567890"), list("qwertyuiop"), list("asdfghjkl"), list("zxcvbnm@._-")][row]
+
+    def _control_keys(self):
+        show = "SHOW" if self.edit["kind"] in ("password", "token") else ""
+        return ["SHIFT", "SYM", "SPACE", "DEL", "CLEAR", show, "CANCEL", "DONE"]
+
+    def _nearest_key_column(self, row, column):
+        keys = self._keyrow(row)
+        column = min(max(0, column), len(keys) - 1)
+        if keys[column]:
+            return column
+        return min((i for i, value in enumerate(keys) if value),
+                   key=lambda i: (abs(i - column), i))
 
     def wifi_select(self):
         if self.row == 0:
