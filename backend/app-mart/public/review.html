@@ -81,6 +81,10 @@
     const hash = document.createElement('div'); hash.className = 'hash';
     hash.textContent = `SHA-256: ${item.sha256}`;
     const actions = document.createElement('div'); actions.className = 'actions';
+    const checklist = document.createElement('a'); checklist.href = 'REVIEW_CHECKLIST.md';
+    checklist.target = '_blank'; checklist.rel = 'noopener';
+    checklist.style.cssText = 'align-self:center;color:var(--gold);font-size:13px;';
+    checklist.textContent = 'Reviewer checklist';
     const download = document.createElement('button'); download.className = 'secondary';
     download.textContent = 'Inspect ZIP';
     download.onclick = async () => {
@@ -98,8 +102,17 @@
     approve.onclick = () => decide(item.id, 'approve');
     const reject = document.createElement('button'); reject.className = 'reject'; reject.textContent = 'Reject';
     reject.onclick = () => decide(item.id, 'reject');
-    actions.append(download, approve, reject);
+    actions.append(download, approve, reject, checklist);
     card.append(top, description, hash, actions);
+    try {
+      const flags = JSON.parse(item.flags || 'null');
+      if (Array.isArray(flags) && flags.length) {
+        const warning = document.createElement('p');
+        warning.style.cssText = 'color:#ffb743;font-size:13px;margin:12px 0 0;';
+        warning.textContent = `⚠ auto-screening flagged: ${flags.join('; ')}`;
+        card.append(warning);
+      }
+    } catch { /* flags absent or malformed: show nothing */ }
     return card;
   }
   async function decide(id, action) {
