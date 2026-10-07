@@ -217,23 +217,23 @@ def _nmcli_fields(line):
     return fields
 
 
-def wifi_scan():
+def wifi_scan(rescan=True):
     rc, out = command(["nmcli", "-t", "-e", "yes", "-f",
                        "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi",
-                       "list", "--rescan", "yes"], timeout=18)
+                       "list", "--rescan", "yes" if rescan else "no"], timeout=18)
     if rc:
         return {"aps": [], "connectivity": "unknown",
                 "error": " ".join(out.split())[:100] or "Wi-Fi scan failed"}
-    saved = set()
-    rc, profiles = command(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show"])
+    # One call for all saved wifi profiles (uuid + ssid); the old code ran an
+    # extra `nmcli connection show` per profile.
+    saved = {}
+    rc, profiles = command(["nmcli", "-t", "-f", "UUID,802-11-wireless.ssid,TYPE",
+                            "connection", "show"], timeout=8)
     if rc == 0:
         for profile in profiles.splitlines():
             fields = _nmcli_fields(profile)
-            if len(fields) >= 2 and fields[1] == "802-11-wireless":
-                _, ssid = command(["nmcli", "-g", "802-11-wireless.ssid",
-                                   "connection", "show", fields[0]])
-                if ssid:
-                    saved.add(ssid.strip())
+            if len(fields) >= 3 and fields[2] == "802-11-wireless" and fields[1]:
+                saved[fields[1]] = fields[0]
     aps = {}
     for line in out.splitlines():
         row = _nmcli_fields(line)
@@ -246,7 +246,7 @@ def wifi_scan():
         ssid, security = row[1], row[3]
         item = {"ssid": ssid, "signal": signal,
                 "security": security, "connected": row[0] == "*",
-                "known": ssid in saved}
+                "known": ssid in saved, "profile": saved.get(ssid)}
         if ssid not in aps or signal > aps[ssid]["signal"] or item["connected"]:
             aps[ssid] = item
     return {"aps": sorted(aps.values(), key=lambda ap: (not ap["connected"], -ap["signal"], ap["ssid"])),
@@ -300,7 +300,8 @@ def wifi_connect(ssid, password=None, hidden=False):
     if not password:
         rc, out = command(base, timeout=35)
         detail = " ".join(out.split())[:58]
-        return {"ok": rc == 0, "message": "Joined " + ssid + ". Checking access…" if rc == 0
+        return {"ok": rc == 0, "ssid": ssid,
+                "message": "Joined " + ssid + ". Checking access…" if rc == 0
                 else "Wi-Fi join failed: " + (detail or "check signal and try again")}
 
     # --ask reads the key from a pseudo-terminal; the secret never appears in
@@ -344,12 +345,29 @@ def wifi_connect(ssid, password=None, hidden=False):
         except OSError:
             pass
         ok = proc.returncode == 0 and sent
-        return {"ok": ok, "message": "Connected to " + ssid if ok else
+        return {"ok": ok, "ssid": ssid,
+                "message": "Connected to " + ssid if ok else
                 "Could not connect. Check the password and try again."}
     finally:
         if slave >= 0:
             os.close(slave)
         os.close(master)
+
+
+def wifi_connect_saved(uuid, ssid):
+    """Activate a saved profile directly.
+
+    `nmcli device wifi connect` rescans the radio before associating, which is
+    where most of the ~30s join time goes. `connection up` skips the scan and
+    typically finishes in a few seconds (handshake + DHCP). Fails fast if the
+    network is gone or the saved secret is stale.
+    """
+    rc, out = command(["nmcli", "--wait", "12", "connection", "up", uuid],
+                      timeout=15)
+    detail = " ".join(out.split())[:58]
+    return {"ok": rc == 0, "ssid": ssid,
+            "message": "Joined " + ssid + ". Checking access…" if rc == 0
+            else "Wi-Fi join failed: " + (detail or "check signal and try again")}
 
 
 def bluetooth_devices(scan=False):
@@ -571,7 +589,12 @@ class SettingsApp:
         elif self.page == "wifi" and isinstance(result, dict) and "ok" in result:
             self.say(result["message"], 8)
             if result["ok"]:
-                self.start(wifi_scan)
+                # Mark the joined network connected directly: the cached scan
+                # predates the join, so its IN-USE flag would be stale. Then
+                # refresh the list without another radio rescan.
+                for ap in self.wifi_aps:
+                    ap["connected"] = ap["ssid"] == result.get("ssid")
+                self.start(wifi_scan, False)
         elif self.page == "wifi" and isinstance(result, dict) and "error" in result:
             self.say(result["error"][:52])
         elif self.page == "bluetooth" and isinstance(result, dict) and "devices" in result:
@@ -953,6 +976,9 @@ class SettingsApp:
             self.wifi_hidden = False
             if ap["connected"]:
                 self.say("Already connected to " + ap["ssid"])
+            elif ap.get("known") and ap.get("profile"):
+                self.say("Connecting to saved network…", 20)
+                self.start(wifi_connect_saved, ap["profile"], ap["ssid"])
             elif ap.get("known"):
                 self.say("Connecting to saved network…", 35)
                 self.start(wifi_connect, ap["ssid"], None, False)
