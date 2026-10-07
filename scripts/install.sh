@@ -85,6 +85,9 @@ fi
 install -d -m 0755 /etc/NetworkManager/conf.d
 install -m 0644 "$ROOT/config/20-gpi-connectivity.conf" \
   /etc/NetworkManager/conf.d/20-gpi-connectivity.conf
+install -d -m 0755 /etc/polkit-1/rules.d
+install -m 0644 "$ROOT/config/49-gpi-network.rules" \
+  /etc/polkit-1/rules.d/49-gpi-network.rules
 if ! id gpi-ai >/dev/null 2>&1; then
   useradd --system --home-dir /nonexistent --shell /usr/sbin/nologin gpi-ai
 fi

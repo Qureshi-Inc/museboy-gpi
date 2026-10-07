@@ -1,0 +1,7 @@
+// GPi: allow the tendo user to manage NetworkManager (Wi-Fi scan/connect/radio from Settings) without a password prompt.
+polkit.addRule(function(action, subject) {
+    if (action.id.indexOf("org.freedesktop.NetworkManager.") == 0 &&
+        subject.user == "tendo") {
+        return polkit.Result.YES;
+    }
+});
