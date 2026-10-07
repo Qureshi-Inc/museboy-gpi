@@ -1,1 +1,1 @@
-{"description":"Voice-built apps","exec":"/opt/gpi/apps/builder/run.sh","id":"builder","name":"App Builder"}
+{"author": "MuseBoy", "category": "creation", "description": "Voice-built apps", "exec": "/opt/gpi/apps/builder/run.sh", "id": "builder", "name": "App Builder", "version": 1}

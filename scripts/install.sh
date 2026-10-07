@@ -50,7 +50,8 @@ for app in appmart builder settings; do
   install -m 0755 "$ROOT/apps/$app/run.sh" "/opt/gpi/apps/$app/"
 done
 install -m 0755 "$ROOT/apps/appmart/main.py" /opt/gpi/apps/appmart/
-cp -a "$ROOT/apps/appmart/demo" /opt/gpi/apps/appmart/
+mkdir -p /opt/gpi/apps/appmart/demo
+cp -a "$ROOT/apps/appmart/demo/." /opt/gpi/apps/appmart/demo/
 install -m 0755 "$ROOT/apps/builder/builder.py" "$ROOT/apps/builder/local_plan.py" \
   /opt/gpi/apps/builder/
 install -m 0644 "$ROOT/docs/MUSE-HANDOFF.md" \
@@ -137,10 +138,23 @@ chmod 2775 /var/lib/gpi-builder /var/lib/gpi-builder/{requests,builds,.tmp,appma
 
 # Install Muse's maintained Linux SDK without a shared token and without
 # opening pairing yet. The owner enters their own SDK token in Settings.
+#
+# The installer is pinned to a specific upstream commit and its SHA-256 is
+# verified before execution, so a silent upstream change can never alter a
+# fresh MuseBoy install.
+# To update the pin: fetch the commit SHA for the SDK's main branch from
+#   https://api.github.com/repos/facebookincubator/muse-gadget-sdk/commits/main
+# then download
+#   https://raw.githubusercontent.com/facebookincubator/muse-gadget-sdk/<SHA>/linux/install.sh
+# and record its sha256 in MUSE_SDK_INSTALLER_SHA256 below.
+MUSE_SDK_COMMIT="b139b45064b4dcecf7bfe97e75bc7f99c10c28b6"
+MUSE_SDK_INSTALLER_SHA256="319582e96448f67725b805ef2c2858543970a08689c23b3c1323d5394af9f9c4"
 if ! command -v musegadget >/dev/null 2>&1; then
   sdk_tmp=$(mktemp)
   trap 'rm -f "$sdk_tmp"' EXIT
-  curl -fsSL https://raw.githubusercontent.com/facebookincubator/muse-gadget-sdk/main/linux/install.sh -o "$sdk_tmp"
+  curl -fsSL "https://raw.githubusercontent.com/facebookincubator/muse-gadget-sdk/${MUSE_SDK_COMMIT}/linux/install.sh" -o "$sdk_tmp"
+  echo "${MUSE_SDK_INSTALLER_SHA256}  ${sdk_tmp}" | sha256sum -c - \
+    || { echo "Muse SDK installer hash mismatch — refusing to run it." >&2; exit 1; }
   bash "$sdk_tmp" --run-as tendo --yes --no-pair
   rm -f "$sdk_tmp"
   trap - EXIT

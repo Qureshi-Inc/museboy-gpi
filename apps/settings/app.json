@@ -1,1 +1,1 @@
-{"description":"Bluetooth & system","exec":"/opt/gpi/apps/settings/run.sh","id":"settings","name":"Settings"}
+{"author": "MuseBoy", "category": "system", "description": "Bluetooth & system", "exec": "/opt/gpi/apps/settings/run.sh", "id": "settings", "name": "Settings", "version": 1}

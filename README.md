@@ -79,6 +79,34 @@ sudo ./scripts/install.sh --tailscale
 
 That flag installs Tailscale and displays its sign-in QR code. Omitting the flag leaves Tailscale out of the installation.
 
+## What the installer changes
+
+`sudo ./scripts/install.sh` makes these persistent changes on the CM4:
+
+- **System users:** creates `tendo` (the unprivileged account that runs MuseBoy, the SDK, and your apps) and `gpi-ai` (a system account for local model services).
+- **Sudo rules:** `/etc/sudoers.d/90-gpi-settings` grants `tendo` limited passwordless sudo for specific Settings actions (Wi-Fi/Bluetooth operations), not general root.
+- **Network policy:** `/etc/polkit-1/rules.d/49-gpi-network.rules` lets the `tendo` user manage Wi-Fi through NetworkManager (scan, connect, enable/disable radio); `/etc/NetworkManager/conf.d/20-gpi-connectivity.conf` enables NetworkManager's connectivity check.
+- **Systemd services (enabled at boot):** `gpi-console` (the launcher UI), `gpi-input` (gamepad → keyboard input daemon), `gpi-local-llm` (local model server), plus the `gpi-muse-skill-onboard.path` one-shot that handles the first-pairing skill consent.
+- **Directories:** `/opt/gpi` (apps, launcher, input daemon, runtimes), `/var/lib/gpi-builder` (App Builder requests and build status), `/var/lib/musegadget` (Muse SDK state, root-only), `/var/lib/musegadget/sdk_token` (your SDK token, mode `0600`).
+- **Packages:** installs system packages via apt (bluez, network-manager, python3 + pygame/requests, X11, pulseaudio, chromium, and friends), downloads the Muse SDK installer (pinned commit, SHA-256 verified), and downloads Whisper weights + the Gemma model (checksummed, after your terms acceptance).
+
+## Uninstall
+
+To remove MuseBoy cleanly:
+
+```sh
+sudo systemctl disable --now gpi-console gpi-input gpi-local-llm gpi-muse-skill-onboard.path
+sudo rm -f /etc/systemd/system/gpi-console.service /etc/systemd/system/gpi-input.service \
+  /etc/systemd/system/gpi-local-llm.service /etc/systemd/system/gpi-muse-skill-onboard.service \
+  /etc/systemd/system/gpi-muse-skill-onboard.path /etc/sudoers.d/90-gpi-settings \
+  /etc/polkit-1/rules.d/49-gpi-network.rules \
+  /etc/NetworkManager/conf.d/20-gpi-connectivity.conf
+sudo rm -rf /opt/gpi /var/lib/gpi-builder /var/lib/musegadget /etc/gpi
+sudo systemctl daemon-reload
+```
+
+This removes the apps, services, policy rules, and SDK state (including your SDK token). System users `tendo` and `gpi-ai` are left in place; remove them with `sudo userdel -r tendo` / `sudo userdel gpi-ai` if you want them gone too. Apt packages installed as dependencies are left alone; `sudo apt autoremove` will offer to drop the ones nothing else needs.
+
 ## Using the four apps
 
 - **MuseBoy Home:** D-pad moves through the grid; A opens an app; B or Start returns; Select returns Home from a running app.
@@ -105,6 +133,7 @@ Restart the app or use **Settings → Local AI → Refresh models**. Only downlo
 - The llama.cpp and whisper.cpp ARM64 runtime binaries are statically linked and included. Source commit IDs and notices are in [`THIRD_PARTY.md`](THIRD_PARTY.md).
 - Model weights are downloaded separately and are not in Git. Gemma is subject to Google's terms. Whisper's tiny English model is MIT-licensed.
 - Muse's Linux Device SDK is installed from its upstream installer at setup. Each owner supplies a personal SDK token. Muse commands run as the unprivileged `tendo` account without general sudo rights; the SDK can read and modify files available to that account. Review the official SDK security and token terms before pairing.
+- Network transparency: NetworkManager checks connectivity by fetching `http://nmcheck.gnome.org/check_network_status.txt` every 300 seconds (configured in `config/20-gpi-connectivity.conf`), and the Wi-Fi sign-in helper opens `http://neverssl.com/` in Chromium so captive portals can intercept it. These are the standard NetworkManager/captive-portal conventions, not MuseBoy telemetry.
 - Local model selection is limited to valid GGUF files no larger than 2.5 GB. The service reserves memory for the UI, audio, and operating system. Large context windows or bigger models may be slow or fail on a CM4.
 - Use the GPi power switch and wait for shutdown to finish. The bundled GPIO overlay sends an orderly system power event; verify safe shutdown after installation.
 

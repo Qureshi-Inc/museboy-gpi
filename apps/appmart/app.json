@@ -1,1 +1,1 @@
-{"description":"Slot in new apps","exec":"/opt/gpi/apps/appmart/run.sh","id":"appmart","name":"Appmart"}
+{"author": "MuseBoy", "category": "app-store", "description": "Slot in new apps", "exec": "/opt/gpi/apps/appmart/run.sh", "id": "appmart", "name": "Appmart", "version": 1}
