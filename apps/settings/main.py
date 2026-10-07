@@ -218,11 +218,6 @@ def _nmcli_fields(line):
 
 
 def wifi_scan():
-    radio_rc, radio = command(["nmcli", "radio", "wifi"], timeout=5)
-    if radio_rc != 0 or radio.strip() != "enabled":
-        return {"aps": [], "connectivity": "none",
-                "error": "Wi-Fi radio is off" if radio_rc == 0 else
-                (" ".join(radio.split())[:100] or "Could not read Wi-Fi radio state")}
     rc, out = command(["nmcli", "-t", "-e", "yes", "-f",
                        "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi",
                        "list", "--rescan", "yes"], timeout=18)
@@ -620,14 +615,11 @@ class SettingsApp:
         if page == "wifi":
             rc, out = command(["nmcli", "radio", "wifi"])
             self.wifi_radio = out.strip() == "enabled" and rc == 0
-            if self.wifi_radio:
-                self.wifi_aps = []
-                self.say("Scanning nearby networks…", 20)
-                self.start(wifi_scan)
-            else:
-                self.wifi_aps = []
-                self.wifi_connectivity = "none"
-                self.say("Wi-Fi is off. Select the first row to turn it on.", 12)
+            self.wifi_aps = []
+            self.say("Scanning nearby networks…", 20)
+            # Let the scan report whether the radio is unavailable. A separate
+            # `nmcli radio` probe can be stale or localized and hid all SSIDs.
+            self.start(wifi_scan)
         elif page == "bluetooth":
             self.bt_devices = []
             self.say("Loading saved devices…", 20)

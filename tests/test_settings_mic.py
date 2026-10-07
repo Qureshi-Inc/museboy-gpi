@@ -70,8 +70,6 @@ class MicMeterTests(unittest.TestCase):
 
     def test_wifi_scan_reports_captive_portal_state(self):
         def fake_command(args, timeout=8, input_text=None):
-            if args == ["nmcli", "radio", "wifi"]:
-                return 0, "enabled"
             if args[1:4] == ["-t", "-e", "yes"]:
                 return 0, "*:Guest WiFi:90:"
             if args[1:4] == ["-t", "-f", "NAME,TYPE"]:
@@ -86,17 +84,14 @@ class MicMeterTests(unittest.TestCase):
         self.assertEqual(result["aps"][0]["ssid"], "Guest WiFi")
         self.assertFalse(result["aps"][0]["security"])
 
-    def test_wifi_scan_skips_scan_when_radio_is_off(self):
-        calls = []
+    def test_wifi_scan_reports_scan_errors_without_hiding_diagnostics(self):
         def fake_command(args, timeout=8, input_text=None):
-            calls.append(args)
-            return 0, "disabled"
+            return 10, "Error: Scanning not allowed while Wi-Fi is disabled"
 
         with patch.object(settings_module, "command", side_effect=fake_command):
             result = settings_module.wifi_scan()
         self.assertEqual(result["aps"], [])
-        self.assertIn("off", result["error"])
-        self.assertEqual(calls, [["nmcli", "radio", "wifi"]])
+        self.assertIn("Scanning not allowed", result["error"])
 
     def test_wifi_radio_reports_actual_enabled_state_and_nmcli_error(self):
         with patch.object(settings_module, "command", side_effect=[
